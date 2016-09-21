@@ -8,8 +8,8 @@
 # make doesn't care for quotes in the dependencies.
 XML_PACKAGE=$(subst $\",,$(BR2_OPENPOWER_XML_PACKAGE))
 
-OPENPOWER_PNOR_VERSION ?= 8a1f000cdc71969d46be686eabce22738c78e7b9
-OPENPOWER_PNOR_SITE ?= $(call github,open-power,pnor,$(OPENPOWER_PNOR_VERSION))
+OPENPOWER_PNOR_VERSION ?= d7c65de1af8c16b31f6bf1873b8f6d6d7c352872
+OPENPOWER_PNOR_SITE ?= $(call github,sannerd,pnor,$(OPENPOWER_PNOR_VERSION))
 
 OPENPOWER_PNOR_LICENSE = Apache-2.0
 OPENPOWER_PNOR_DEPENDENCIES = hostboot hostboot-binaries $(XML_PACKAGE) skiboot host-openpower-ffs occ capp-ucode
@@ -44,7 +44,39 @@ OPENPOWER_PNOR = openpower-pnor
 define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
         mkdir -p $(OPENPOWER_PNOR_SCRATCH_DIR)
 
-        $(TARGET_MAKE_ENV) $(@D)/update_image.pl \
+    if [ "$(BR2_OPENPOWER_POWER9)" == "y" ]; then \
+        $(TARGET_MAKE_ENV) $(@D)/p9Layouts/update_image.pl \
+            -op_target_dir $(HOSTBOOT_IMAGE_DIR) \
+            -hb_image_dir $(HOSTBOOT_IMAGE_DIR) \
+            -scratch_dir $(OPENPOWER_PNOR_SCRATCH_DIR) \
+            -hb_binary_dir $(HOSTBOOT_BINARY_DIR) \
+            -targeting_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME) \
+            -targeting_binary_source $(BR2_OPENPOWER_TARGETING_BIN_FILENAME) \
+            -sbe_binary_filename $(BR2_HOSTBOOT_BINARY_SBE_FILENAME) \
+            -wink_binary_filename $(BR2_HOSTBOOT_BINARY_WINK_FILENAME) \
+            -occ_binary_filename $(OCC_STAGING_DIR)/$(BR2_OCC_BIN_FILENAME) \
+            -capp_binary_filename $(BINARIES_DIR)/$(BR2_CAPP_UCODE_BIN_FILENAME) \
+            -openpower_version_filename $(OPENPOWER_PNOR_VERSION_FILE) \
+            -payload $(BINARIES_DIR)/$(BR2_SKIBOOT_LID_NAME) \
+            $(if ($(BR2_OPENPOWER_PNOR_XZ_ENABLED),y),-xz_compression); \
+        mkdir -p $(STAGING_DIR)/pnor/ ; \
+        $(TARGET_MAKE_ENV) $(@D)/p9Layouts/create_pnor_image.pl \
+            -xml_layout_file $(@D)/p9Layouts/$(BR2_OPENPOWER_PNOR_XML_LAYOUT_FILENAME) \
+            -pnor_filename $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME) \
+            -hb_image_dir $(HOSTBOOT_IMAGE_DIR) \
+            -scratch_dir $(OPENPOWER_PNOR_SCRATCH_DIR) \
+            -outdir $(STAGING_DIR)/pnor/ \
+            -payload $(BINARIES_DIR)/$(BR2_SKIBOOT_LID_XZ_NAME) \
+            -bootkernel $(BINARIES_DIR)/$(LINUX_IMAGE_NAME) \
+            -sbe_binary_filename $(BR2_HOSTBOOT_BINARY_SBE_FILENAME) \
+            -wink_binary_filename $(BR2_HOSTBOOT_BINARY_WINK_FILENAME) \
+            -occ_binary_filename $(OCC_STAGING_DIR)/$(BR2_OCC_BIN_FILENAME) \
+            -targeting_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME) \
+            -openpower_version_filename $(OPENPOWER_PNOR_VERSION_FILE); \
+    fi;
+
+    if [ "$(BR2_OPENPOWER_POWER8)" == "y" ]; then \
+        $(TARGET_MAKE_ENV) $(@D)/p8Layouts/update_image.pl \
             -op_target_dir $(HOSTBOOT_IMAGE_DIR) \
             -hb_image_dir $(HOSTBOOT_IMAGE_DIR) \
             -scratch_dir $(OPENPOWER_PNOR_SCRATCH_DIR) \
@@ -58,11 +90,10 @@ define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
             -capp_binary_filename $(BINARIES_DIR)/$(BR2_CAPP_UCODE_BIN_FILENAME) \
             -openpower_version_filename $(OPENPOWER_PNOR_VERSION_FILE) \
             -payload $(BINARIES_DIR)/$(BR2_SKIBOOT_LID_NAME) \
-            $(if ($(BR2_OPENPOWER_PNOR_XZ_ENABLED),y),-xz_compression)
-
-        mkdir -p $(STAGING_DIR)/pnor/
-        $(TARGET_MAKE_ENV) $(@D)/create_pnor_image.pl \
-            -xml_layout_file $(@D)/$(BR2_OPENPOWER_PNOR_XML_LAYOUT_FILENAME) \
+            $(if ($(BR2_OPENPOWER_PNOR_XZ_ENABLED),y),-xz_compression); \
+        mkdir -p $(STAGING_DIR)/pnor/ ; \
+        $(TARGET_MAKE_ENV) $(@D)/p8Layouts/create_pnor_image.pl \
+            -xml_layout_file $(@D)/p8Layouts/$(BR2_OPENPOWER_PNOR_XML_LAYOUT_FILENAME) \
             -pnor_filename $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME) \
             -hb_image_dir $(HOSTBOOT_IMAGE_DIR) \
             -scratch_dir $(OPENPOWER_PNOR_SCRATCH_DIR) \
@@ -74,7 +105,9 @@ define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
             -wink_binary_filename $(BR2_HOSTBOOT_BINARY_WINK_FILENAME) \
             -occ_binary_filename $(OCC_STAGING_DIR)/$(BR2_OCC_BIN_FILENAME) \
             -targeting_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME) \
-            -openpower_version_filename $(OPENPOWER_PNOR_VERSION_FILE)
+            -openpower_version_filename $(OPENPOWER_PNOR_VERSION_FILE); \
+    fi;
+
 
         $(INSTALL) $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME) $(BINARIES_DIR)
 
