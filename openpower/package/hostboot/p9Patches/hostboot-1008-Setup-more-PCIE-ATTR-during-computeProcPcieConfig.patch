@@ -1,0 +1,776 @@
+From f473279043e5dd7bfb8f89fbea619513e4cac92c Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 13 Jan 2017 13:04:25 -0600
+Subject: [PATCH v1 1008/1022] Setup more PCIE ATTR during
+ computeProcPcieConfigAttrs
+
+   - Setup PROC_PCIE_REFCLOCK_ENABLE and PROC_PCIE_PCS_SYSTEM_CNTL
+   - Update missing PCIE attribute settings in XML
+
+Change-Id: Iac6e74812e6875ad4513cba0eff0c2d664a81241
+---
+ src/usr/isteps/istep08/call_proc_pcie_scominit.C   |  54 ++--
+ src/usr/isteps/istep08/host_proc_pcie_scominit.C   | 288 ++++++++++++---------
+ src/usr/isteps/istep08/host_proc_pcie_scominit.H   |  14 +-
+ src/usr/isteps/istep14/call_proc_pcie_config.C     | 106 ++++----
+ src/usr/targeting/common/genHwsvMrwXml.pl          |  39 ++-
+ .../targeting/common/xmltohb/attribute_types.xml   |   2 +
+ 6 files changed, 295 insertions(+), 208 deletions(-)
+
+diff --git a/src/usr/isteps/istep08/call_proc_pcie_scominit.C b/src/usr/isteps/istep08/call_proc_pcie_scominit.C
+index 8f3e208..382cd4d 100644
+--- a/src/usr/isteps/istep08/call_proc_pcie_scominit.C
++++ b/src/usr/isteps/istep08/call_proc_pcie_scominit.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2015,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2015,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -78,14 +78,6 @@ void*    call_proc_pcie_scominit( void    *io_pArgs )
+     errlHndl_t          l_errl      =   NULL;
+     IStepError          l_StepError;
+ 
+-    bool spBaseServicesEnabled = INITSERVICE::spBaseServicesEnabled();
+-
+-    //
+-    //  get the master Proc target, we want to IGNORE this one.
+-    //
+-    TARGETING::Target* l_pMasterProcTarget = NULL;
+-    TARGETING::targetService().masterProcChipTargetHandle(l_pMasterProcTarget);
+-
+     //
+     //  get a list of all the procs in the system
+     //
+@@ -94,34 +86,28 @@ void*    call_proc_pcie_scominit( void    *io_pArgs )
+ 
+     for (const auto & l_cpu_target: l_cpuTargetList)
+     {
+-        // Compute the PCIE attribute config on all non-SP systems, since SP
+-        // won't be there to do it.
+-        if(!spBaseServicesEnabled)
++        // Compute the PCIE attribute config on all systems
++        l_errl = computeProcPcieConfigAttrs(l_cpu_target);
++        if(l_errl != NULL)
+         {
+-            // Unlike SP which operates on all present procs, the SP-less
+-            // algorithm only needs to operate on functional ones
+-            l_errl = computeProcPcieConfigAttrs(l_cpu_target);
+-            if(l_errl != NULL)
+-            {
+-                // Any failure to configure PCIE that makes it to this handler
+-                // implies a firmware bug that should be fixed, everything else
+-                // is tolerated internally (usually as disabled PHBs)
+-                TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace,
+-                         ERR_MRK "call_proc_pcie_scominit> Failed in call to "
+-                         "computeProcPcieConfigAttrs for target with HUID = "
+-                         "0x%08X",
+-                        l_cpu_target->getAttr<TARGETING::ATTR_HUID>() );
+-                l_StepError.addErrorDetails(l_errl);
+-                errlCommit( l_errl, ISTEP_COMP_ID );
+-            }
++            // Any failure to configure PCIE that makes it to this handler
++            // implies a firmware bug that should be fixed, everything else
++            // is tolerated internally (usually as disabled PHBs)
++            TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace,
++                       ERR_MRK "call_proc_pcie_scominit> Failed in call to "
++                       "computeProcPcieConfigAttrs for target with HUID = "
++                       "0x%08X",
++                       l_cpu_target->getAttr<TARGETING::ATTR_HUID>() );
++            l_StepError.addErrorDetails(l_errl);
++            errlCommit( l_errl, ISTEP_COMP_ID );
+         }
+ 
+         const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP> l_fapi2_proc_target(
+-                l_cpu_target);
++                                                                 l_cpu_target);
+ 
+         TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace,
+-                 "Running p9_pcie_scominit HWP on "
+-                 "target HUID %.8X", TARGETING::get_huid(l_cpu_target) );
++                   "Running p9_pcie_scominit HWP on "
++                   "target HUID %.8X", TARGETING::get_huid(l_cpu_target) );
+ 
+         //  call the HWP with each fapi2::Target
+         FAPI_INVOKE_HWP(l_errl, p9_pcie_scominit, l_fapi2_proc_target);
+@@ -129,8 +115,8 @@ void*    call_proc_pcie_scominit( void    *io_pArgs )
+         if (l_errl)
+         {
+             TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace,
+-                     "ERROR 0x%.8X : p9_pcie_scominit HWP returned error",
+-                     l_errl->reasonCode() );
++                       "ERROR 0x%.8X : p9_pcie_scominit HWP returned error",
++                       l_errl->reasonCode() );
+ 
+             // capture the target data in the elog
+             ErrlUserDetailsTarget(l_cpu_target).addToLog( l_errl );
+@@ -145,7 +131,7 @@ void*    call_proc_pcie_scominit( void    *io_pArgs )
+         else
+         {
+             TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace,
+-                     "SUCCESS :  proc_pcie_scominit HWP" );
++                       "SUCCESS :  proc_pcie_scominit HWP" );
+         }
+     } // end of looping through all processors
+ 
+diff --git a/src/usr/isteps/istep08/host_proc_pcie_scominit.C b/src/usr/isteps/istep08/host_proc_pcie_scominit.C
+index 780e58e..6053425 100644
+--- a/src/usr/isteps/istep08/host_proc_pcie_scominit.C
++++ b/src/usr/isteps/istep08/host_proc_pcie_scominit.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -256,7 +256,8 @@ errlHndl_t computeProcPcieConfigAttrs(TARGETING::Target * i_pProcChipTarget)
+            LANE_WIDTH_NC,
+            LANE_WIDTH_NC,
+            LANE_WIDTH_NC},
+-           0x00,PHB0_MASK},
++           0x00,PHB0_MASK,
++           PHB_X16_MAC_MAP, 0x01},
+         };
+ 
+     const laneConfigRow pec1_laneConfigTable[] =
+@@ -264,7 +265,8 @@ errlHndl_t computeProcPcieConfigAttrs(TARGETING::Target * i_pProcChipTarget)
+            LANE_WIDTH_NC,
+            LANE_WIDTH_8X,
+            LANE_WIDTH_NC},
+-           0x00,PHB1_MASK|PHB2_MASK},
++           0x00,PHB1_MASK|PHB2_MASK,
++           PHB_X8_X8_MAC_MAP, 0x03},
+         };
+ 
+     const laneConfigRow pec2_laneConfigTable[] =
+@@ -272,19 +274,22 @@ errlHndl_t computeProcPcieConfigAttrs(TARGETING::Target * i_pProcChipTarget)
+            LANE_WIDTH_NC,
+            LANE_WIDTH_NC,
+            LANE_WIDTH_NC},
+-           0x00,PHB3_MASK},
++           0x00,PHB3_MASK,
++           PHB_X16_MAC_MAP, 0x4},
+ 
+          {{LANE_WIDTH_8X,
+            LANE_WIDTH_NC,
+            LANE_WIDTH_8X,
+            LANE_WIDTH_NC},
+-           0x10,PHB3_MASK|PHB4_MASK},
++           0x10,PHB3_MASK|PHB4_MASK,
++           PHB_X8_X8_MAC_MAP, 0x6},
+ 
+          {{LANE_WIDTH_8X,
+            LANE_WIDTH_NC,
+            LANE_WIDTH_4X,
+            LANE_WIDTH_4X},
+-           0x20,PHB3_MASK|PHB4_MASK|PHB5_MASK},
++           0x20,PHB3_MASK|PHB4_MASK|PHB5_MASK,
++           PHB_X8_X4_X4_MAC_MAP, 0x07},
+         };
+ 
+     const laneConfigRow* pec0_end = pec0_laneConfigTable +
+@@ -402,154 +407,184 @@ errlHndl_t computeProcPcieConfigAttrs(TARGETING::Target * i_pProcChipTarget)
+ 
+             TARGETING::ATTR_PROC_PCIE_PHB_ACTIVE_type disabledPhbs = 0;
+ 
+-#ifdef DYNAMIC_BIFURCATION
+-
+-            // Figure out which IOPs need bifurcation, and as a result, which
+-            // PHBs to disable
+-            BifurcatedIopsContainer iopList;
+-            pError = _queryIopsToBifurcateAndPhbsToDisable(
+-                l_pec,
+-                iopList,
+-                disabledPhbs);
+-            if(pError!=NULL)
+-            {
+-                TRACFCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
+-                    ERR_MRK "computeProcPcieConfigAttrs> "
+-                    "Failed in call to _queryIopsToBifurcateAndPhbsToDisable; "
+-                    "Proc HUID = 0x%08X.",
+-                    i_pProcChipTarget->getAttr<TARGETING::ATTR_HUID>());
+-                break;
+-            }
+-#endif
+-
+-            TARGETING::ATTR_PEC_PCIE_LANE_MASK_NON_BIFURCATED_type
+-                laneMaskNonBifurcated = {0};
+-            assert(l_pec->tryGetAttr<
+-                TARGETING::ATTR_PEC_PCIE_LANE_MASK_NON_BIFURCATED>(
+-                    laneMaskNonBifurcated),"Failed to get "
+-                    "ATTR_PEC_PCIE_LANE_MASK_NON_BIFURCATED attribute");
+-
+-            TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_NON_BIFURCATED_type
+-                laneReversalNonBifurcated = {0};
+-            assert(l_pec->tryGetAttr<
+-                TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_NON_BIFURCATED>(
+-                    laneReversalNonBifurcated),"Failed to get "
+-                    "ATTR_PEC_PCIE_IOP_REVERSAL_NON_BIFURCATED attribute");
+-
+-            TARGETING::ATTR_PEC_PCIE_IOP_SWAP_NON_BIFURCATED_type
+-                laneSwapNonBifurcated = 0;
+-            assert(l_pec->tryGetAttr<
+-                TARGETING::ATTR_PEC_PCIE_IOP_SWAP_NON_BIFURCATED>(
+-                    laneSwapNonBifurcated),"Failed to get "
+-                    "ATTR_PEC_PCIE_IOP_SWAP_NON_BIFURCATED attribute");
+-
+             TARGETING::ATTR_PROC_PCIE_LANE_MASK_type
+-                effectiveLaneMask = {0};
+-            memcpy(effectiveLaneMask,laneMaskNonBifurcated,
+-                sizeof(effectiveLaneMask));
++              effectiveLaneMask = {0};
+ 
+             TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_type
+-                effectiveLaneReversal = {0};
+-            memcpy(effectiveLaneReversal,laneReversalNonBifurcated,
+-                sizeof(effectiveLaneReversal));
++              effectiveLaneReversal = {0};
+ 
+             TARGETING::ATTR_PROC_PCIE_IOP_SWAP_type
+-                effectiveLaneSwap = 0;
++              effectiveLaneSwap = 0;
+ 
+-            // For every lane group of a PEC, we need to see if the lane swap
+-            // bit has been set. If the lane is used, and the bit is not set
+-            // we set the lane swap bit. Lane swap attribute is a single
+-            // attribute per PEC, so once the lane swap is set for one lane
+-            // group it will be set for the whole PEC.
+-            for(size_t laneGroup = 0;
+-                laneGroup <
+-                    (sizeof(laneSwapNonBifurcated)/sizeof(effectiveLaneSwap));
+-                ++laneGroup)
++            //Only attempt to determine the lane config on FSPless systems
++            //On FSP based systems it has already been determined
++            if (!INITSERVICE::spBaseServicesEnabled())
+             {
+-                // If lanes are used and swap not yet set, then set it
+-                if((effectiveLaneMask[laneGroup]) && (!effectiveLaneSwap))
++#ifdef DYNAMIC_BIFURCATION
++                // Figure out which IOPs need bifurcation, and as a
++                // result, which PHBs to disable
++                BifurcatedIopsContainer iopList;
++                pError = _queryIopsToBifurcateAndPhbsToDisable(
++                                                               l_pec,
++                                                               iopList,
++                                                               disabledPhbs);
++                if(pError!=NULL)
+                 {
+-                     effectiveLaneSwap = laneSwapNonBifurcated;
+-                     break;
++                    TRACFCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
++                              ERR_MRK "computeProcPcieConfigAttrs> "
++                              "Failed in call to"
++                              "_queryIopsToBifurcateAndPhbsToDisable; "
++                              "Proc HUID = 0x%08X.",
++                              i_pProcChipTarget->getAttr
++                              <TARGETING::ATTR_HUID>());
++                    break;
+                 }
+-            }
++#endif
+ 
+-#ifdef DYNAMIC_BIFURCATION
+-            TARGETING::ATTR_PEC_PCIE_LANE_MASK_BIFURCATED_type
+-                laneMaskBifurcated = {0};
+-            assert(l_pec->tryGetAttr<
+-                TARGETING::ATTR_PEC_PCIE_LANE_MASK_BIFURCATED>(
+-                    laneMaskBifurcated),"Failed to get "
+-                    "ATTR_PEC_PCIE_LANE_MASK_BIFURCATED attribute");
+-
+-            TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_BIFURCATED_type
+-                laneReversalBifurcated = {0};
+-            assert(l_pec->tryGetAttr<
+-                TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_BIFURCATED>(
+-                    laneReversalBifurcated),"Failed to get "
+-                    "ATTR_PEC_PCIE_IOP_REVERSAL_BIFURCATED attribute");
+-
+-            TARGETING::ATTR_PEC_PCIE_IOP_SWAP_BIFURCATED_type
+-                bifurcatedSwap = {0};
+-            assert(l_pec->tryGetAttr<
+-                TARGETING::ATTR_PEC_PCIE_IOP_SWAP_BIFURCATED>(
+-                    bifurcatedSwap),"Failed to get "
+-                    "ATTR_PEC_PCIE_IOP_SWAP_BIFURCATED attribute");
+-
+-            // Apply any IOP bifurcation settings
+-            for(BifurcatedIopsContainer::const_iterator iopItr =
+-                iopList.begin(); iopItr != iopList.end();
+-                ++iopItr)
+-            {
+-                BifurcatedIopsContainer::const_reference iop = *iopItr;
+-                memcpy(
+-                    &effectiveLaneReversal[0],
+-                    &laneReversalBifurcated[0],
+-                    sizeof(effectiveLaneReversal)/1);
+-
+-                memcpy(
+-                    &effectiveLaneMask[0],
+-                    &laneMaskBifurcated[0],
+-                    sizeof(effectiveLaneMask)/1);
+-
+-                // For every lane group of a PEC we need to see if the lane swap
++                TARGETING::ATTR_PEC_PCIE_LANE_MASK_NON_BIFURCATED_type
++                  laneMaskNonBifurcated = {0};
++                assert(l_pec->tryGetAttr<
++                         TARGETING::ATTR_PEC_PCIE_LANE_MASK_NON_BIFURCATED>(
++                         laneMaskNonBifurcated),"Failed to get "
++                         "ATTR_PEC_PCIE_LANE_MASK_NON_BIFURCATED attribute");
++
++                TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_NON_BIFURCATED_type
++                  laneReversalNonBifurcated = {0};
++                assert(l_pec->tryGetAttr<
++                         TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_NON_BIFURCATED>(
++                         laneReversalNonBifurcated),"Failed to get "
++                         "ATTR_PEC_PCIE_IOP_REVERSAL_NON_BIFURCATED attribute");
++
++                TARGETING::ATTR_PEC_PCIE_IOP_SWAP_NON_BIFURCATED_type
++                  laneSwapNonBifurcated = 0;
++                assert(l_pec->tryGetAttr<
++                       TARGETING::ATTR_PEC_PCIE_IOP_SWAP_NON_BIFURCATED>(
++                       laneSwapNonBifurcated),"Failed to get "
++                       "ATTR_PEC_PCIE_IOP_SWAP_NON_BIFURCATED attribute");
++
++                memcpy(effectiveLaneMask,laneMaskNonBifurcated,
++                       sizeof(effectiveLaneMask));
++
++                memcpy(effectiveLaneReversal,laneReversalNonBifurcated,
++                       sizeof(effectiveLaneReversal));
++
++                // For every lane group of a PEC, need to see if the lane swap
+                 // bit has been set. If the lane is used, and the bit is not set
+                 // we set the lane swap bit. Lane swap attribute is a single
+                 // attribute per PEC, so once the lane swap is set for one lane
+                 // group it will be set for the whole PEC.
+-                for(size_t laneGroup=0;
++                for(size_t laneGroup = 0;
+                     laneGroup <
+-                        (sizeof(bifurcatedSwap)/sizeof(effectiveLaneSwap));
++                      (sizeof(laneSwapNonBifurcated)/sizeof(effectiveLaneSwap));
+                     ++laneGroup)
+                 {
+                     // If lanes are used and swap not yet set, then set it
+                     if((effectiveLaneMask[laneGroup]) && (!effectiveLaneSwap))
+                     {
+-                        effectiveLaneSwap = bifurcatedSwap[laneGroup];
++                        effectiveLaneSwap = laneSwapNonBifurcated;
+                         break;
+                     }
+                 }
+-            }
+-#endif
+ 
+-            l_pec->setAttr<
+-                TARGETING::ATTR_PROC_PCIE_LANE_MASK>(effectiveLaneMask);
++#ifdef DYNAMIC_BIFURCATION
++                TARGETING::ATTR_PEC_PCIE_LANE_MASK_BIFURCATED_type
++                  laneMaskBifurcated = {0};
++                assert(l_pec->tryGetAttr<
++                       TARGETING::ATTR_PEC_PCIE_LANE_MASK_BIFURCATED>(
++                       laneMaskBifurcated),"Failed to get "
++                       "ATTR_PEC_PCIE_LANE_MASK_BIFURCATED attribute");
++
++                TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_BIFURCATED_type
++                  laneReversalBifurcated = {0};
++                assert(l_pec->tryGetAttr<
++                       TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL_BIFURCATED>(
++                       laneReversalBifurcated),"Failed to get "
++                       "ATTR_PEC_PCIE_IOP_REVERSAL_BIFURCATED attribute");
++
++                TARGETING::ATTR_PEC_PCIE_IOP_SWAP_BIFURCATED_type
++                  bifurcatedSwap = {0};
++                assert(l_pec->tryGetAttr<
++                       TARGETING::ATTR_PEC_PCIE_IOP_SWAP_BIFURCATED>(
++                       bifurcatedSwap),"Failed to get "
++                       "ATTR_PEC_PCIE_IOP_SWAP_BIFURCATED attribute");
++
++                // Apply any IOP bifurcation settings
++                for(BifurcatedIopsContainer::const_iterator iopItr =
++                    iopList.begin(); iopItr != iopList.end();
++                    ++iopItr)
++                {
++                    BifurcatedIopsContainer::const_reference iop = *iopItr;
++                    memcpy(
++                           &effectiveLaneReversal[0],
++                           &laneReversalBifurcated[0],
++                           sizeof(effectiveLaneReversal)/1);
++
++                    memcpy(
++                           &effectiveLaneMask[0],
++                           &laneMaskBifurcated[0],
++                           sizeof(effectiveLaneMask)/1);
++
++                    // For every lane group of a PEC we need to see if
++                    // the lane swap bit has been set. If the lane is
++                    // used, and the bit is not set we set the lane swap
++                    // bit. Lane swap attribute is a single attribute per
++                    // PEC, so once the lane swap is set for one lane
++                    // group it will be set for the whole PEC.
++                    for(size_t laneGroup=0;
++                        laneGroup <
++                          (sizeof(bifurcatedSwap)/sizeof(effectiveLaneSwap));
++                        ++laneGroup)
++                    {
++                        // If lanes are used and swap not yet set, then set it
++                        if((effectiveLaneMask[laneGroup]) &&
++                           (!effectiveLaneSwap))
++                        {
++                            effectiveLaneSwap = bifurcatedSwap[laneGroup];
++                            break;
++                        }
++                    }
++                }
++#endif
++                l_pec->setAttr<
++                  TARGETING::ATTR_PROC_PCIE_LANE_MASK>(effectiveLaneMask);
+ 
+-            l_pec->setAttr<
+-                TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL>(effectiveLaneReversal);
++                l_pec->setAttr<
++                  TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL>(effectiveLaneReversal);
+ 
+-            l_pec->setAttr<
+-                TARGETING::ATTR_PROC_PCIE_IOP_SWAP>(effectiveLaneSwap);
++                l_pec->setAttr<
++                  TARGETING::ATTR_PROC_PCIE_IOP_SWAP>(effectiveLaneSwap);
++            }
++            else
++            {
++                assert(l_pec->tryGetAttr<
++                       TARGETING::ATTR_PROC_PCIE_LANE_MASK>(effectiveLaneMask),
++                       "Failed to get ATTR_PROC_PCIE_LANE_MASK attribute");
++
++                assert(l_pec->tryGetAttr<
++                       TARGETING::ATTR_PEC_PCIE_IOP_REVERSAL>
++                       (effectiveLaneReversal),
++                       "Failed to get ATTR_PEC_PCIE_IOP_REVERSAL attribute");
++
++                assert(l_pec->tryGetAttr<
++                       TARGETING::ATTR_PROC_PCIE_IOP_SWAP>(effectiveLaneSwap),
++                       "Failed to get ATTR_PROC_PCIE_IOP_SWAP attribute");
++            }
+ 
+             TARGETING::ATTR_PROC_PCIE_PHB_ACTIVE_type pecPhbActiveMask = 0;
+             TARGETING::ATTR_PROC_PCIE_IOP_CONFIG_type iopConfig = 0;
++            TARGETING::ATTR_PROC_PCIE_IOVALID_ENABLE_type ioValid = 0;
++            TARGETING::ATTR_PROC_PCIE_REFCLOCK_ENABLE_type refEnable = 0;
++            TARGETING::ATTR_PROC_PCIE_PCS_SYSTEM_CNTL_type macCntl = 0;
+ 
+             laneConfigRow effectiveConfig =
+                   {{LANE_WIDTH_NC,
+                    LANE_WIDTH_NC,
+                    LANE_WIDTH_NC,
+                    LANE_WIDTH_NC},
+-                    0x00,PHB_MASK_NA};
++                    0x00,PHB_MASK_NA,
++                    PHB_X16_MAC_MAP,
++                    0x00,
++                   };
+ 
+             // Transform effective config to match lane config table format
+             for(size_t laneGroup = 0;
+@@ -569,15 +604,14 @@ errlHndl_t computeProcPcieConfigAttrs(TARGETING::Target * i_pProcChipTarget)
+             if(laneConfigItr != pLaneConfigTableEnd)
+             {
+                 iopConfig = laneConfigItr->laneConfig;
++                ioValid = laneConfigItr->iovalid;
++                refEnable = 0x1;
++                macCntl = laneConfigItr->phb_to_pcieMAC;
+                 pecPhbActiveMask = laneConfigItr->phbActive;
+                 // Disable applicable PHBs
+                 pecPhbActiveMask &= (~disabledPhbs);
+                 // Add the PEC phb mask to the overall Proc PHB mask
+                 procPhbActiveMask |= pecPhbActiveMask;
+-                TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace,
+-                    "MATT TRACE PEC phb active mask = 0x%02X. "
+-                    "PROC phb active mask = 0x%02X.",
+-                    pecPhbActiveMask, procPhbActiveMask);
+             }
+             else
+             {
+@@ -634,6 +668,14 @@ errlHndl_t computeProcPcieConfigAttrs(TARGETING::Target * i_pProcChipTarget)
+             procPhbActiveMask |= pecPhbActiveMask;
+             l_pec->setAttr<
+                 TARGETING::ATTR_PROC_PCIE_IOP_CONFIG>(iopConfig);
++            l_pec->setAttr<
++                  TARGETING::ATTR_PROC_PCIE_REFCLOCK_ENABLE>(refEnable);
++            l_pec->setAttr<
++                  TARGETING::ATTR_PROC_PCIE_PCS_SYSTEM_CNTL>(macCntl);
++            //TODO: RTC 167302 - Remove below setting after PHB targets in
++            // OpenPower XML files
++            l_pec->setAttr<
++                  TARGETING::ATTR_PROC_PCIE_IOVALID_ENABLE>(ioValid);
+ 
+         }// PEC loop
+ 
+diff --git a/src/usr/isteps/istep08/host_proc_pcie_scominit.H b/src/usr/isteps/istep08/host_proc_pcie_scominit.H
+index 123aa28..fd5af99 100644
+--- a/src/usr/isteps/istep08/host_proc_pcie_scominit.H
++++ b/src/usr/isteps/istep08/host_proc_pcie_scominit.H
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -92,6 +92,8 @@ struct laneConfigRow
+     // PHB4 = 0x08
+     // PHB5 = 0x04
+     uint8_t phbActive;
++    uint16_t phb_to_pcieMAC;
++    uint8_t iovalid;
+ };
+ 
+ /**
+@@ -118,6 +120,16 @@ enum LaneMask
+ };
+ 
+ /**
++ *  @brief Enumeration of PHB to PCI MAC mappings
++ */
++enum PhbToMAC
++{
++    PHB_X16_MAC_MAP      = 0x0000,
++    PHB_X8_X8_MAC_MAP    = 0x0050,
++    PHB_X8_X4_X4_MAC_MAP = 0x0090,
++};
++
++/**
+  *  @brief Enum giving bitmask values for enabled PHBs
+  */
+ enum PhbActiveMask
+diff --git a/src/usr/isteps/istep14/call_proc_pcie_config.C b/src/usr/isteps/istep14/call_proc_pcie_config.C
+index 7c06973..848b86b 100644
+--- a/src/usr/isteps/istep14/call_proc_pcie_config.C
++++ b/src/usr/isteps/istep14/call_proc_pcie_config.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2015,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2015,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -27,6 +27,7 @@
+ #include <errl/errludtarget.H>
+ #include <isteps/hwpisteperror.H>
+ #include <initservice/isteps_trace.H>
++#include <initservice/initserviceif.H>
+ 
+ //HWP Invoker
+ #include    <fapi2/plat_hwp_invoker.H>
+@@ -75,64 +76,71 @@ bool compareChipUnits(TARGETING::Target *l_t1,
+ *******************************************************************/
+ void setup_pcie_iovalid_enable(const TARGETING::Target * i_procTarget)
+ {
+-    // Get list of PEC chiplets downstream from the given proc chip
+-    TARGETING::TargetHandleList l_pecList;
+-
+-    getChildAffinityTargetsByState( l_pecList,
+-                          i_procTarget,
+-                          TARGETING::CLASS_NA,
+-                          TARGETING::TYPE_PEC,
+-                          TARGETING::UTIL_FILTER_ALL);
+-
+-    for (auto l_pecTarget : l_pecList)
++    //Only do this on FSP based systems, until the OpenPOWER
++    //XML supports Phb targets
++    if (INITSERVICE::spBaseServicesEnabled())
+     {
+-        // Get list of PHB chiplets downstream from the given PEC chiplet
+-        TARGETING::TargetHandleList l_phbList;
++        // Get list of PEC chiplets downstream from the given proc chip
++        TARGETING::TargetHandleList l_pecList;
+ 
+-        getChildAffinityTargetsByState( l_phbList,
+-                          const_cast<TARGETING::Target*>(l_pecTarget),
+-                          TARGETING::CLASS_NA,
+-                          TARGETING::TYPE_PHB,
+-                          TARGETING::UTIL_FILTER_ALL);
++        getChildAffinityTargetsByState( l_pecList,
++                                        i_procTarget,
++                                        TARGETING::CLASS_NA,
++                                        TARGETING::TYPE_PEC,
++                                        TARGETING::UTIL_FILTER_ALL);
+ 
++        for (auto l_pecTarget : l_pecList)
++        {
++            // Get list of PHB chiplets downstream from the given PEC chiplet
++            TARGETING::TargetHandleList l_phbList;
+ 
+-        // default to all invalid
+-        ATTR_PROC_PCIE_IOVALID_ENABLE_type l_iovalid = 0;
++            getChildAffinityTargetsByState( l_phbList,
++                       const_cast<TARGETING::Target*>(l_pecTarget),
++                       TARGETING::CLASS_NA,
++                       TARGETING::TYPE_PHB,
++                       TARGETING::UTIL_FILTER_ALL);
+ 
+-        // arrange phb targets from largest to smallest based on unit
+-        // ex.  PHB5, PHB4, PHB3
+-        std::sort(l_phbList.begin(),l_phbList.end(),compareChipUnits);
+-        for(uint32_t k = 0; k<l_phbList.size(); ++k)
+-        {
+-            const fapi2::Target<fapi2::TARGET_TYPE_PHB>
+-                l_fapi_phb_target(l_phbList[k]);
+ 
+-            if(l_fapi_phb_target.isFunctional())
+-            {
+-                TRACDCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
+-                    "PHB%d functional",
+-                    (l_phbList[k])->getAttr<TARGETING::ATTR_CHIP_UNIT>());
+-
+-                // filled in bitwise,
+-                // largest PHB unit on the right to smallest leftword
+-                // ex. l_iovalid = 0b00000110 : PHB3, PHB4 functional, PHB5 not
+-                l_iovalid |= (1<<k);
+-            }
+-            else
++            // default to all invalid
++            ATTR_PROC_PCIE_IOVALID_ENABLE_type l_iovalid = 0;
++
++            // arrange phb targets from largest to smallest based on unit
++            // ex.  PHB5, PHB4, PHB3
++            std::sort(l_phbList.begin(),l_phbList.end(),compareChipUnits);
++            for(uint32_t k = 0; k<l_phbList.size(); ++k)
+             {
+-                TRACDCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
+-                    "PHB%d not functional",
+-                    (l_phbList[k])->getAttr<TARGETING::ATTR_CHIP_UNIT>());
++                const fapi2::Target<fapi2::TARGET_TYPE_PHB>
++                  l_fapi_phb_target(l_phbList[k]);
++
++                if(l_fapi_phb_target.isFunctional())
++                {
++                    TRACDCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
++                          "PHB%d functional",
++                          (l_phbList[k])->getAttr<TARGETING::ATTR_CHIP_UNIT>());
++
++                    // filled in bitwise,
++                    // largest PHB unit on the right to smallest leftword
++                    // ex. l_iovalid = 0b00000110 : PHB3, PHB4 functional,
++                    //                 PHB5 not
++                    l_iovalid |= (1<<k);
++                }
++                else
++                {
++                    TRACDCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
++                          "PHB%d not functional",
++                          (l_phbList[k])->getAttr<TARGETING::ATTR_CHIP_UNIT>());
++                }
+             }
+-        }
+ 
+-        TRACFCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
+-                "PROC %.8X PEC%d -> ATTR_PROC_PCIE_IOVALID_ENABLE: 0x%02X",
+-                TARGETING::get_huid(i_procTarget),
+-                l_pecTarget->getAttr<TARGETING::ATTR_CHIP_UNIT>(),
+-                l_iovalid);
++            TRACFCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
++                     "PROC %.8X PEC%d -> ATTR_PROC_PCIE_IOVALID_ENABLE: 0x%02X",
++                     TARGETING::get_huid(i_procTarget),
++                     l_pecTarget->getAttr<TARGETING::ATTR_CHIP_UNIT>(),
++                     l_iovalid);
+ 
+-        l_pecTarget->setAttr<TARGETING::ATTR_PROC_PCIE_IOVALID_ENABLE>(l_iovalid);
++            l_pecTarget->setAttr
++                  <TARGETING::ATTR_PROC_PCIE_IOVALID_ENABLE>(l_iovalid);
++        }
+     }
+ }
+ 
+diff --git a/src/usr/targeting/common/genHwsvMrwXml.pl b/src/usr/targeting/common/genHwsvMrwXml.pl
+index b64f319..9cf7e23 100755
+--- a/src/usr/targeting/common/genHwsvMrwXml.pl
++++ b/src/usr/targeting/common/genHwsvMrwXml.pl
+@@ -4736,7 +4736,6 @@ sub generate_mcbist
+     my $physicalPath="physical:sys-$sys/node-$node/proc-$proc/mcbist-$mcbist";
+     my $affinityPath="affinity:sys-$sys/node-$node/proc-$proc/mcbist-$mcbist";
+ 
+-    #Chiplet ID range for 2 MCBIST start with 0x07
+     my $chipletId = sprintf("0x%X",($mcbist + 0x07));
+ 
+     print "
+@@ -4883,6 +4882,32 @@ sub generate_pec
+     $pciAttr{"PROC_PCIE_PCS_SYSTEM_CNTL"} = 'proc_pcie_pcs_system_cntl';
+     $pciAttr{"PROC_PCIE_PCS_M_CNTL"} = 'proc_pcie_pcs_m_cntl';
+ 
++    # PCIE Hack to set PEC PCIE_LANE_MASK and PCIE_IOP_SWAP attributes
++    my %pciOtherAttr;
++    if ($pec == 0)
++    {
++        $pciOtherAttr{"PROC_PCIE_LANE_MASK"} = "0xFFFF, 0x0000, 0x0000, 0x0000";
++    }
++    elsif ($pec == 1)
++    {
++        $pciOtherAttr{"PROC_PCIE_LANE_MASK"} = "0xFF00, 0x0000, 0x00FF, 0x0000";
++        if (($proc == 0) || ($proc == 1))
++        {
++            $pciOtherAttr{"PROC_PCIE_IOP_SWAP"} = 0x2;
++        }
++    }
++    elsif ($pec == 2)
++    {
++        $pciOtherAttr{"PROC_PCIE_LANE_MASK"} = "0xFF00, 0x0000, 0x00FF, 0x0000";
++        if ($proc == 0)
++        {
++            $pciOtherAttr{"PROC_PCIE_IOP_SWAP"} = 0x6;
++        }
++        elsif ($proc == 1)
++        {
++            $pciOtherAttr{"PROC_PCIE_IOP_SWAP"} = 0x4;
++        }
++    }
+ 
+     # XML has this structure (iop==pec):
+     #   <processor-settings>
+@@ -4908,6 +4933,18 @@ sub generate_pec
+         <default>$procsetting->{$mrwname}</default>
+     </attribute>\n";
+         }
++
++        foreach my $attr ( keys %pciOtherAttr )
++        {
++
++
++            my $val = $pciOtherAttr{$attr};
++            print "    <attribute>
++        <id>$attr</id>
++        <default>$val</default>
++    </attribute>\n";
++        }
++
+     }
+ 
+     # call to do any fsp per-pec attributes
+diff --git a/src/usr/targeting/common/xmltohb/attribute_types.xml b/src/usr/targeting/common/xmltohb/attribute_types.xml
+index bd20e1e..1b19476 100644
+--- a/src/usr/targeting/common/xmltohb/attribute_types.xml
++++ b/src/usr/targeting/common/xmltohb/attribute_types.xml
+@@ -12607,6 +12607,7 @@ Measured in GB</description>
+     </simpleType>
+     <persistency>volatile-zeroed</persistency>
+     <readable/>
++    <writeable/>
+     <hwpfToHbAttrMap>
+         <id>ATTR_PROC_PCIE_REFCLOCK_ENABLE</id>
+         <macro>DIRECT</macro>
+@@ -22236,6 +22237,7 @@ Measured in GB</description>
+     </simpleType>
+     <persistency>non-volatile</persistency>
+     <readable/>
++    <writeable/>
+     <hwpfToHbAttrMap>
+         <id>ATTR_PROC_PCIE_PCS_SYSTEM_CNTL</id>
+         <macro>DIRECT</macro>
+-- 
+1.8.2.2
+

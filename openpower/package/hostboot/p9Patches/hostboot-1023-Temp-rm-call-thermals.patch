@@ -1,0 +1,13 @@
+diff --git a/src/usr/isteps/istep07/call_mss_eff_config.C b/src/usr/isteps/istep07/call_mss_eff_config.C
+index e13dace..dfbe811 100644
+--- a/src/usr/isteps/istep07/call_mss_eff_config.C
++++ b/src/usr/isteps/istep07/call_mss_eff_config.C
+@@ -242,7 +242,7 @@ void*    call_mss_eff_config( void *io_pArgs )
+         // Call the mss_eff_config_thermal HWP
+         TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace,
+                    "p9_mss_eff_config_thermal HWP. ");
+-        FAPI_INVOKE_HWP(l_err, p9_mss_eff_config_thermal,l_fapi_mcs_targs);
++        //FAPI_INVOKE_HWP(l_err, p9_mss_eff_config_thermal,l_fapi_mcs_targs);
+ 
+         if (l_err)
+         {

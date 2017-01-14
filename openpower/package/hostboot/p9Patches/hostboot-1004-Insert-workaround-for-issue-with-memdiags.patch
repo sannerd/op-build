@@ -1,0 +1,53 @@
+From e0223b7586b2e07216b599ddea22e91f7b374abe Mon Sep 17 00:00:00 2001
+From: crgeddes <crgeddes@us.ibm.com>
+Date: Fri, 13 Jan 2017 09:56:07 -0600
+Subject: [PATCH v1 1004/1022] Insert workaround for issue with memdiags
+
+For the sake of getting started running plckIPLRequests we are
+insertting this workaround. It needs to be removed
+
+Change-Id: I99d5fa0ae3613ef1b4b77a6c6af81750a0a76d26
+RTC: 167292
+---
+ src/usr/isteps/istep13/call_mss_draminit_mc.C | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/src/usr/isteps/istep13/call_mss_draminit_mc.C b/src/usr/isteps/istep13/call_mss_draminit_mc.C
+index 2a5ca1e..4a80a28 100644
+--- a/src/usr/isteps/istep13/call_mss_draminit_mc.C
++++ b/src/usr/isteps/istep13/call_mss_draminit_mc.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2015,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2015,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -104,6 +104,22 @@ void* call_mss_draminit_mc (void *io_pArgs)
+ 
+     } // End; memBuf loop
+ 
++
++    //TODO RTC:167292 Remove this workaround that is clearing this scom register
++    fapi2::buffer<uint64_t> l_data64;
++    l_data64.flush<0>();
++    // Get all MCAs
++    TARGETING::TargetHandleList l_mcaTargetList;
++    getAllChiplets(l_mcaTargetList, TYPE_MCA);
++
++    //Clear out the MBA_FARB3Q reg(0x7010916) on all MCAs
++    for (const auto & l_mca_target : l_mcaTargetList)
++    {
++        fapi2::Target<fapi2::TARGET_TYPE_MCA> l_fapi_mca_target
++        (l_mca_target);
++        fapi2::putScom(l_fapi_mca_target, 0x7010916, l_data64);
++    }
++
+     TRACFCOMP( ISTEPS_TRACE::g_trac_isteps_trace, "call_mss_draminit_mc exit" );
+ 
+     return l_stepError.getErrorHandle();
+-- 
+1.8.2.2
+

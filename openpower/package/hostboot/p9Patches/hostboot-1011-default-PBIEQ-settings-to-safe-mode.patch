@@ -1,0 +1,50 @@
+From 42d51f82d7e2e353f4b06e3212be88666b10b7d1 Mon Sep 17 00:00:00 2001
+From: Joe McGill <jmcgill@us.ibm.com>
+Date: Wed, 4 Jan 2017 11:23:44 -0600
+Subject: [PATCH v1 1011/1022] default PBIEQ settings to safe mode
+
+Change-Id: I0de81cfa1ed5b39fb923fb67393bb52c671191f4
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/34360
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: Thi N. Tran <thi@us.ibm.com>
+Reviewed-by: Jenny Huynh <jhuynh@us.ibm.com>
+Reviewed-by: Joseph J. McGill <jmcgill@us.ibm.com>
+---
+ src/import/chips/p9/procedures/hwp/nest/p9_fbc_eff_config.C | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/nest/p9_fbc_eff_config.C b/src/import/chips/p9/procedures/hwp/nest/p9_fbc_eff_config.C
+index e41399d..bd49f50 100644
+--- a/src/import/chips/p9/procedures/hwp/nest/p9_fbc_eff_config.C
++++ b/src/import/chips/p9/procedures/hwp/nest/p9_fbc_eff_config.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -331,6 +331,7 @@ p9_fbc_eff_config_process_freq_attributes(
+     FAPI_DBG("Start");
+     uint32_t l_freq_core_floor;
+     uint32_t l_freq_core_nom;
++    uint8_t l_async_safe_mode = fapi2::ENUM_ATTR_PROC_FABRIC_ASYNC_SAFE_MODE_SAFE_MODE;
+ 
+     // get core floor/nominal/ceiling frequency attributes
+     FAPI_TRY(FAPI_ATTR_GET(fapi2::ATTR_FREQ_CORE_FLOOR_MHZ, i_target, l_freq_core_floor),
+@@ -448,6 +449,9 @@ p9_fbc_eff_config_process_freq_attributes(
+     FAPI_TRY(FAPI_ATTR_SET(fapi2::ATTR_PROC_FABRIC_CORE_CEILING_RATIO, i_target, io_core_ceiling_ratio),
+              "Error from FAPI_ATTR_SET (ATTR_PROC_FABRIC_CORE_CEILING_RATIO)");
+ 
++    FAPI_TRY(FAPI_ATTR_SET(fapi2::ATTR_PROC_FABRIC_ASYNC_SAFE_MODE, i_target, l_async_safe_mode),
++             "Error from FAPI_ATTR_SET (ATTR_PROC_FABRIC_ASYNC_SAFE_MODE)");
++
+ fapi_try_exit:
+     FAPI_DBG("End");
+     return fapi2::current_err;
+-- 
+1.8.2.2
+

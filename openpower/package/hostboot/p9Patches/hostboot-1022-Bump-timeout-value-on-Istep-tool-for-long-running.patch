@@ -1,0 +1,27 @@
+From 363bf88bad924d3e3d426075849e2006752b13cc Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Sat, 14 Jan 2017 08:26:42 -0600
+Subject: [PATCH v1 1022/1022] Bump timeout value on Istep tool for long
+ running commands
+
+Change-Id: Id83681f43f52dce91700fbbfec6b36a7a2e6e9c8
+---
+ src/build/debug/Hostboot/Istep.pm | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/build/debug/Hostboot/Istep.pm b/src/build/debug/Hostboot/Istep.pm
+index b32d526..be9029d 100755
+--- a/src/build/debug/Hostboot/Istep.pm
++++ b/src/build/debug/Hostboot/Istep.pm
+@@ -123,7 +123,7 @@ my  $hbCount =   $ENV{'HB_COUNT'};
+ if ( !defined( $hbCount ) || ( $hbCount eq "" ) )
+ {
+     ##  set default
+-    $hbCount    =   0xff;     ##  default that should work for all env
++    $hbCount    =   0x2ff;     ##  default that should work for all env
+ }
+ 
+ ## init global variables
+-- 
+1.8.2.2
+

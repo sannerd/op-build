@@ -1,0 +1,82 @@
+From 3fdf56a2dd2e80f4b06ed5dbbebb978b03c3ce58 Mon Sep 17 00:00:00 2001
+From: Joe McGill <jmcgill@us.ibm.com>
+Date: Mon, 2 Jan 2017 21:02:45 -0600
+Subject: [PATCH v1 1015/1022] NX FIR updates
+
+Change-Id: If8a73a50cd97a88c95fa0fb0d71df3bc0d92d981
+---
+ .../chips/p9/procedures/hwp/initfiles/p9_nx_scom.C     | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/initfiles/p9_nx_scom.C b/src/import/chips/p9/procedures/hwp/initfiles/p9_nx_scom.C
+index 4574484..b533caa 100644
+--- a/src/import/chips/p9/procedures/hwp/initfiles/p9_nx_scom.C
++++ b/src/import/chips/p9/procedures/hwp/initfiles/p9_nx_scom.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -139,15 +139,15 @@ fapi2::ReturnCode p9_nx_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&
+             l_scom_buffer.insert<18, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<19, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<1, 1, 63, uint64_t>(literal_0b0 );
+-            l_scom_buffer.insert<20, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<20, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<21, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<22, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<23, 1, 63, uint64_t>(literal_0b0 );
+-            l_scom_buffer.insert<24, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<24, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<25, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<26, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<27, 1, 63, uint64_t>(literal_0b0 );
+-            l_scom_buffer.insert<28, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<28, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<29, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<2, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<30, 1, 63, uint64_t>(literal_0b1 );
+@@ -230,15 +230,15 @@ fapi2::ReturnCode p9_nx_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&
+             l_scom_buffer.insert<13, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<14, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<15, 1, 63, uint64_t>(literal_0b0 );
+-            l_scom_buffer.insert<16, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<16, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<17, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<18, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<19, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<1, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<20, 1, 63, uint64_t>(literal_0b0 );
+-            l_scom_buffer.insert<21, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<21, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<22, 1, 63, uint64_t>(literal_0b0 );
+-            l_scom_buffer.insert<23, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<23, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<24, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<25, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<26, 1, 63, uint64_t>(literal_0b0 );
+@@ -262,7 +262,7 @@ fapi2::ReturnCode p9_nx_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&
+             l_scom_buffer.insert<43, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<4, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<5, 1, 63, uint64_t>(literal_0b1 );
+-            l_scom_buffer.insert<6, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<6, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<7, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<8, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<9, 1, 63, uint64_t>(literal_0b0 );
+@@ -333,7 +333,7 @@ fapi2::ReturnCode p9_nx_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&
+         {
+             FAPI_TRY(fapi2::getScom( TGT0, 0x2011103ull, l_scom_buffer ));
+ 
+-            l_scom_buffer.insert<0, 1, 63, uint64_t>(literal_0b0 );
++            l_scom_buffer.insert<0, 1, 63, uint64_t>(literal_0b1 );
+             l_scom_buffer.insert<10, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<11, 1, 63, uint64_t>(literal_0b0 );
+             l_scom_buffer.insert<12, 1, 63, uint64_t>(literal_0b0 );
+-- 
+1.8.2.2
+

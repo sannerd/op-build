@@ -1,0 +1,120 @@
+From 91df6b39f551f5079b37ae906f5bb5ef8f8be3d8 Mon Sep 17 00:00:00 2001
+From: nagurram-in <nagendra.g@in.ibm.com>
+Date: Thu, 12 Jan 2017 15:00:47 -0600
+Subject: [PATCH v1 1003/1022] sequence of fixes during BU.
+
+Change-Id: I252708a04942736e4de7843ad5c98065365ff004
+---
+ src/usr/hdat/hdatpcia.C | 22 +++++++++++-----------
+ src/usr/hdat/hdatpcia.H |  4 ++--
+ src/usr/hdat/hdatpcrd.C |  2 +-
+ 3 files changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/src/usr/hdat/hdatpcia.C b/src/usr/hdat/hdatpcia.C
+index 129d808..7d4f320 100644
+--- a/src/usr/hdat/hdatpcia.C
++++ b/src/usr/hdat/hdatpcia.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2015,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2015,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -163,6 +163,8 @@ errlHndl_t HdatPcia::hdatLoadPcia(uint32_t &o_size, uint32_t &o_count)
+ 
+         l_coreThreadCount = l_pTopLevel->getAttr<ATTR_THREAD_COUNT>();
+         uint32_t l_procStatus;
++        HDAT_ERR("Core Thread Count[%d]",  l_coreThreadCount);
++
+         if ( l_coreThreadCount == HDAT_MAX_EIGHT_THREADS_SUPPORTED )
+         {
+             l_procStatus =
+@@ -195,7 +197,7 @@ errlHndl_t HdatPcia::hdatLoadPcia(uint32_t &o_size, uint32_t &o_count)
+             uint32_t Procstatus = 0;
+ 
+             uint32_t l_procFabricId =
+-                    l_pProcTarget->getAttr<TARGETING::ATTR_FABRIC_NODE_ID>();
++                    l_pProcTarget->getAttr<TARGETING::ATTR_FABRIC_GROUP_ID>();
+ 
+             uint64_t l_procIntrBase =
+                       l_pProcTarget->getAttr<TARGETING::ATTR_INTP_BASE_ADDR>();
+@@ -254,8 +256,8 @@ errlHndl_t HdatPcia::hdatLoadPcia(uint32_t &o_size, uint32_t &o_count)
+                                             PPPP    is the core number
+                                                 TTT is thread id
+                     */
+-                    uint32_t l_ThreadProcIdReg = l_procFabricId * 0x400;
+-                    l_ThreadProcIdReg += l_procPosition*0x80;
++                    uint32_t l_ThreadProcIdReg = l_procFabricId * 0x800;
++                    l_ThreadProcIdReg += l_procPosition*0x004;
+                     l_ThreadProcIdReg += (l_coreNum * l_coreThreadCount) +
+                                           l_threadIndex;
+ 
+@@ -273,14 +275,12 @@ errlHndl_t HdatPcia::hdatLoadPcia(uint32_t &o_size, uint32_t &o_count)
+                     Procstatus = isFunctional(l_pTarget) ?
+                                            HDAT_PROC_USABLE :
+                                            HDAT_PROC_NOT_USABLE;
++                    l_procStatus &= ~HDAT_PROC_STAT_MASK;
++                    l_procStatus |= Procstatus;
+ 
+-                    Procstatus |= HDAT_EIGHT_THREAD;
+-
+-                    uint32_t l_stat = this->iv_spPcia[index].hdatCoreData.
+-                                    pciaProcStatus & HDAT_PROC_STAT_MASK;
+                     this->iv_spPcia[index].hdatCoreData.pciaProcStatus =
+-                        (static_cast<hdatProcStatus> (Procstatus)
+-                         | l_stat ) & HDAT_EXIST_FLAGS_MASK_FOR_PCIA;
++                        (static_cast<hdatProcStatus> (l_procStatus)
++                        ) & HDAT_EXIST_FLAGS_MASK_FOR_PCIA;
+ 
+                     //IBASE ADDRESS + NNNN + 000
+                     //Where NNNN = Thread Number =
+@@ -472,7 +472,7 @@ errlHndl_t HdatPcia::hdatSetCoreInfo(const uint32_t i_index,
+ 
+         uint32_t l_nodeOrdId = l_pNodeTarget->getAttr<ATTR_ORDINAL_ID>();
+ 
+-        uint32_t l_fabNodeId = i_pProcTarget->getAttr<ATTR_FABRIC_NODE_ID>();
++        uint32_t l_fabNodeId = i_pProcTarget->getAttr<ATTR_FABRIC_GROUP_ID>();
+ 
+         //Set the Internal Drawer Node ID
+         iv_spPcia[i_index].hdatCoreData.pciaDrawerNodeID = l_fabNodeId;
+diff --git a/src/usr/hdat/hdatpcia.H b/src/usr/hdat/hdatpcia.H
+index e1ba475..7e5f4c7 100755
+--- a/src/usr/hdat/hdatpcia.H
++++ b/src/usr/hdat/hdatpcia.H
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2015,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2015,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -56,7 +56,7 @@ namespace HDAT
+ 
+ const uint16_t HDAT_PCIA_VERSION    = 0x01;
+ const char HDAT_PCIA_STRUCT_NAME[7] = "SPPCIA";
+-const uint32_t HDAT_PROC_STAT_MASK  = 0x00008000;
++const uint32_t HDAT_PROC_STAT_MASK  = 0xC0000000;
+ 
+ // Bits in the proc/exist flags for PCIA data
+  #define HDAT_EXIST_FLAGS_MASK_FOR_PCIA  0xD0FF0000
+diff --git a/src/usr/hdat/hdatpcrd.C b/src/usr/hdat/hdatpcrd.C
+index 84c7153..11d85bf 100644
+--- a/src/usr/hdat/hdatpcrd.C
++++ b/src/usr/hdat/hdatpcrd.C
+@@ -692,7 +692,7 @@ errlHndl_t HdatPcrd::hdatSetProcessorInfo(
+         }
+ 
+         uint32_t l_procFabricId =
+-                    i_pProcTarget->getAttr<TARGETING::ATTR_FABRIC_NODE_ID>();
++                    i_pProcTarget->getAttr<TARGETING::ATTR_FABRIC_GROUP_ID>();
+ 
+         // Set fabric nodeid (NNN) and chip (CC) into xscom id:  NN_N0CC
+         uint32_t l_XscomChipId =
+-- 
+1.8.2.2
+

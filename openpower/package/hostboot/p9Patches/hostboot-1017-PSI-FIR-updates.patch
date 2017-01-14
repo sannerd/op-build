@@ -1,0 +1,56 @@
+From 0ff86a6b6f7a0d30a1cad0d6184ee016c3c42f1f Mon Sep 17 00:00:00 2001
+From: Joe McGill <jmcgill@us.ibm.com>
+Date: Sat, 7 Jan 2017 14:49:17 -0600
+Subject: [PATCH v1 1017/1022] PSI FIR updates
+
+Change-Id: I791dd6bf2d9f458c6ba47e094e45fe63f80cef14
+---
+ src/import/chips/p9/procedures/hwp/initfiles/p9_psi_scom.C | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/initfiles/p9_psi_scom.C b/src/import/chips/p9/procedures/hwp/initfiles/p9_psi_scom.C
+index 936f027..1128dec 100644
+--- a/src/import/chips/p9/procedures/hwp/initfiles/p9_psi_scom.C
++++ b/src/import/chips/p9/procedures/hwp/initfiles/p9_psi_scom.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -31,9 +31,9 @@ using namespace fapi2;
+ 
+ constexpr uint64_t literal_0xFE00000000000000 = 0xFE00000000000000;
+ constexpr uint64_t literal_0x0000000000000000 = 0x0000000000000000;
+-constexpr uint64_t literal_0b00111001000000101111111111111 = 0b00111001000000101111111111111;
++constexpr uint64_t literal_0b00111111000000100000011011111 = 0b00111111000000100000011011111;
+ constexpr uint64_t literal_0b00000000000000000000000000000 = 0b00000000000000000000000000000;
+-constexpr uint64_t literal_0b11000110001010010000000000000 = 0b11000110001010010000000000000;
++constexpr uint64_t literal_0b11000000001010011111100100000 = 0b11000000001010011111100100000;
+ constexpr uint64_t literal_0x000 = 0x000;
+ constexpr uint64_t literal_0b00000 = 0b00000;
+ 
+@@ -66,7 +66,7 @@ fapi2::ReturnCode p9_psi_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&
+         {
+             FAPI_TRY(fapi2::getScom( TGT0, 0x5012903ull, l_scom_buffer ));
+ 
+-            l_scom_buffer.insert<0, 29, 35, uint64_t>(literal_0b00111001000000101111111111111 );
++            l_scom_buffer.insert<0, 29, 35, uint64_t>(literal_0b00111111000000100000011011111 );
+             FAPI_TRY(fapi2::putScom(TGT0, 0x5012903ull, l_scom_buffer));
+         }
+         {
+@@ -78,7 +78,7 @@ fapi2::ReturnCode p9_psi_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&
+         {
+             FAPI_TRY(fapi2::getScom( TGT0, 0x5012907ull, l_scom_buffer ));
+ 
+-            l_scom_buffer.insert<0, 29, 35, uint64_t>(literal_0b11000110001010010000000000000 );
++            l_scom_buffer.insert<0, 29, 35, uint64_t>(literal_0b11000000001010011111100100000 );
+             FAPI_TRY(fapi2::putScom(TGT0, 0x5012907ull, l_scom_buffer));
+         }
+         {
+-- 
+1.8.2.2
+

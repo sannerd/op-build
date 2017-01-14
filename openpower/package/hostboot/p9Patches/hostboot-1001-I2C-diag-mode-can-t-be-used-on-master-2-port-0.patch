@@ -1,0 +1,103 @@
+From 8378e9ae49e3953444f1da3f0acb4f1a62f24a74 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Sat, 7 Jan 2017 21:01:04 -0600
+Subject: [PATCH v1 1001/1022] I2C diag mode can't be used on master 2, port 0
+
+  -This is the typical port where the TPM is connected,
+   and the extra security features for locality 4 interfere
+   with the diag mode reset
+
+Change-Id: I5dddc8263d6a75e246ce3e2043037ab9f69555ff
+---
+ src/usr/i2c/i2c.C                                   | 21 +++++++++++++++++++--
+ .../targeting/common/xmltohb/attribute_types.xml    | 17 +++++++++++++++++
+ src/usr/targeting/common/xmltohb/target_types.xml   |  1 +
+ 3 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/src/usr/i2c/i2c.C b/src/usr/i2c/i2c.C
+index aca89c7..643db7b 100755
+--- a/src/usr/i2c/i2c.C
++++ b/src/usr/i2c/i2c.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2011,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2011,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -2486,7 +2486,6 @@ errlHndl_t i2cToggleClockLine(TARGETING::Target * i_target,
+ errlHndl_t i2cForceResetAndUnlock( TARGETING::Target * i_target,
+                                     misc_args_t & i_args)
+ {
+-
+     errlHndl_t err = NULL;
+     mode_reg_t mode;
+     uint64_t l_speed = I2C_BUS_SPEED_FROM_MRW;
+@@ -2533,6 +2532,24 @@ errlHndl_t i2cForceResetAndUnlock( TARGETING::Target * i_target,
+         // Need to send slave stop to all ports with a device on the engine
+         for( uint32_t port = 0; port < P8_MASTER_PORTS; port++ )
+         {
++            //Check if diag mode should be skipped
++            TARGETING::TYPE l_type = i_target->getAttr<TARGETING::ATTR_TYPE>();
++
++            if (l_type == TARGETING::TYPE_PROC)
++            {
++                uint8_t l_disable_diag_mode =
++                        i_target->getAttr<
++                         TARGETING::ATTR_DISABLE_I2C_ENGINE2_PORT0_DIAG_MODE>();
++
++                // P9 engine 2 port 0 has a limitation where the diag mode
++                // cannot be used. -- skip it if the attribute state it
++                // should not be used
++                if (l_disable_diag_mode
++                                && (0 == port) && (2 == i_args.engine))
++                {
++                    continue;
++                }
++            }
+ 
+             // Only send stop to a port if there are devices on it
+             l_speed = speed_array[i_args.engine][port];
+diff --git a/src/usr/targeting/common/xmltohb/attribute_types.xml b/src/usr/targeting/common/xmltohb/attribute_types.xml
+index b1c8627..a00ec7b 100644
+--- a/src/usr/targeting/common/xmltohb/attribute_types.xml
++++ b/src/usr/targeting/common/xmltohb/attribute_types.xml
+@@ -32452,4 +32452,21 @@ Measured in GB</description>
+     </hwpfToHbAttrMap>
+ </attribute>
+ 
++<attribute>
++    <id>DISABLE_I2C_ENGINE2_PORT0_DIAG_MODE</id>
++    <description>
++        Used to tell I2C code whether to run
++        I2C Engine 2 Port 0 in diag mode or not
++        0 = Use Diag Mode
++        1 = Disable Diag Mode
++    </description>
++    <simpleType>
++        <uint8_t>
++            <default>1</default>
++        </uint8_t>
++    </simpleType>
++    <persistency>non-volatile</persistency>
++    <readable/>
++</attribute>
++
+ </attributes>
+diff --git a/src/usr/targeting/common/xmltohb/target_types.xml b/src/usr/targeting/common/xmltohb/target_types.xml
+index ec05f99..c21631a 100755
+--- a/src/usr/targeting/common/xmltohb/target_types.xml
++++ b/src/usr/targeting/common/xmltohb/target_types.xml
+@@ -322,6 +322,7 @@
+     <attribute><id>PROC_FABRIC_A_AGGREGATE</id></attribute>
+     <attribute><id>PROC_FABRIC_X_AGGREGATE</id></attribute>
+     <attribute><id>XIVE_HW_RESET</id></attribute>
++    <attribute><id>DISABLE_I2C_ENGINE2_PORT0_DIAG_MODE</id></attribute>
+ </targetType>
+ 
+ <targetType>
+-- 
+1.8.2.2
+

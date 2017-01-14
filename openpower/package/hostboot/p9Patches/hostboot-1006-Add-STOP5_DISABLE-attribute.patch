@@ -1,0 +1,62 @@
+From 09549f977e9f0d7e032fa395c76fcd58f1b239b3 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 13 Jan 2017 18:41:44 -0600
+Subject: [PATCH v1 1006/1022] Add STOP5_DISABLE attribute
+
+Change-Id: Ie62d755c7ded47d2db20ca36a34442d096883383
+---
+ .../targeting/common/xmltohb/attribute_types.xml   | 25 ++++++++++++++++++++++
+ src/usr/targeting/common/xmltohb/target_types.xml  |  1 +
+ 2 files changed, 26 insertions(+)
+
+diff --git a/src/usr/targeting/common/xmltohb/attribute_types.xml b/src/usr/targeting/common/xmltohb/attribute_types.xml
+index bf9a957..bd20e1e 100644
+--- a/src/usr/targeting/common/xmltohb/attribute_types.xml
++++ b/src/usr/targeting/common/xmltohb/attribute_types.xml
+@@ -19607,6 +19607,31 @@ Measured in GB</description>
+ </attribute>
+ 
+ <attribute>
++    <id>STOP5_DISABLE</id>
++    <description> Control CME response to execution of PowerPC STOP instruction
++    if OFF, treat STOP5 as STOP5
++    if ON,  treat STOP5 as STOP4
++
++    Producer: ???
++
++    Consumer:  p8_hcode_image_build.C
++
++    Platform default: ON
++    </description>
++    <simpleType>
++        <uint8_t>
++          <default>1</default>
++        </uint8_t>
++    </simpleType>
++    <hwpfToHbAttrMap>
++        <id>ATTR_STOP5_DISABLE</id>
++        <macro>DIRECT</macro>
++    </hwpfToHbAttrMap>
++    <persistency>volatile</persistency>
++    <readable/>
++</attribute>
++
++<attribute>
+     <id>STOP8_DISABLE</id>
+     <description>
+       Control CME response to execution of PowerPC STOP instruction
+diff --git a/src/usr/targeting/common/xmltohb/target_types.xml b/src/usr/targeting/common/xmltohb/target_types.xml
+index fabeb39..657f4d4 100755
+--- a/src/usr/targeting/common/xmltohb/target_types.xml
++++ b/src/usr/targeting/common/xmltohb/target_types.xml
+@@ -873,6 +873,7 @@
+     <attribute><id>VDM_ENABLE</id></attribute>
+     <attribute><id>STOP8_DISABLE</id></attribute>
+     <attribute><id>STOP4_DISABLE</id></attribute>
++    <attribute><id>STOP5_DISABLE</id></attribute>
+     <attribute><id>SUPPORTED_STOP_STATES</id></attribute>
+     <attribute><id>SYSTEM_FAMILY</id></attribute>
+     <attribute><id>SYSTEM_TYPE</id></attribute>
+-- 
+1.8.2.2
+

@@ -1,0 +1,62 @@
+From 64b281dfba00718fe1c48213742980dd0aa825f0 Mon Sep 17 00:00:00 2001
+From: Joe McGill <jmcgill@us.ibm.com>
+Date: Sat, 7 Jan 2017 12:51:40 -0600
+Subject: [PATCH v1 1016/1022] VAS FIR updates
+
+Change-Id: I4400f828dccadd831330d979f8437028236ec68d
+---
+ src/import/chips/p9/procedures/hwp/initfiles/p9_vas_scom.C | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/initfiles/p9_vas_scom.C b/src/import/chips/p9/procedures/hwp/initfiles/p9_vas_scom.C
+index cce6945..2ec0b20 100644
+--- a/src/import/chips/p9/procedures/hwp/initfiles/p9_vas_scom.C
++++ b/src/import/chips/p9/procedures/hwp/initfiles/p9_vas_scom.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -29,9 +29,9 @@
+ 
+ using namespace fapi2;
+ 
+-constexpr uint64_t literal_0x00000100000D7FFF = 0x00000100000D7FFF;
+-constexpr uint64_t literal_0x0000000000000FFF = 0x0000000000000FFF;
+-constexpr uint64_t literal_0x00FF0203C00C0FFF = 0x00FF0203C00C0FFF;
++constexpr uint64_t literal_0x00200102000D7FFF = 0x00200102000D7FFF;
++constexpr uint64_t literal_0x0000000000000000 = 0x0000000000000000;
++constexpr uint64_t literal_0x00DF0201C0000000 = 0x00DF0201C0000000;
+ constexpr uint64_t literal_0x1 = 0x1;
+ 
+ fapi2::ReturnCode p9_vas_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>& TGT0,
+@@ -48,19 +48,19 @@ fapi2::ReturnCode p9_vas_scom(const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&
+         {
+             FAPI_TRY(fapi2::getScom( TGT0, 0x3011803ull, l_scom_buffer ));
+ 
+-            l_scom_buffer.insert<0, 54, 0, uint64_t>(literal_0x00000100000D7FFF );
++            l_scom_buffer.insert<0, 54, 0, uint64_t>(literal_0x00200102000D7FFF );
+             FAPI_TRY(fapi2::putScom(TGT0, 0x3011803ull, l_scom_buffer));
+         }
+         {
+             FAPI_TRY(fapi2::getScom( TGT0, 0x3011806ull, l_scom_buffer ));
+ 
+-            l_scom_buffer.insert<0, 54, 0, uint64_t>(literal_0x0000000000000FFF );
++            l_scom_buffer.insert<0, 54, 0, uint64_t>(literal_0x0000000000000000 );
+             FAPI_TRY(fapi2::putScom(TGT0, 0x3011806ull, l_scom_buffer));
+         }
+         {
+             FAPI_TRY(fapi2::getScom( TGT0, 0x3011807ull, l_scom_buffer ));
+ 
+-            l_scom_buffer.insert<0, 54, 0, uint64_t>(literal_0x00FF0203C00C0FFF );
++            l_scom_buffer.insert<0, 54, 0, uint64_t>(literal_0x00DF0201C0000000 );
+             FAPI_TRY(fapi2::putScom(TGT0, 0x3011807ull, l_scom_buffer));
+         }
+         {
+-- 
+1.8.2.2
+

@@ -1,0 +1,72 @@
+From 06b35327c84082f03787b136fa0f63ea143d66c3 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 13 Jan 2017 20:39:45 -0600
+Subject: [PATCH v1 1005/1022] Fix up ATTR to allow spd collection
+
+   -Expand EEPROM_PAGE_ARRAY to match master/buses on P9
+
+Change-Id: I1fbe02d0d3c2a9b2a50370660ffceb0d4b63fea0
+---
+ src/usr/targeting/common/xmltohb/attribute_types_hb.xml | 6 +++---
+ src/usr/targeting/common/xmltohb/target_types_hb.xml    | 6 +++---
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/src/usr/targeting/common/xmltohb/attribute_types_hb.xml b/src/usr/targeting/common/xmltohb/attribute_types_hb.xml
+index 80feae6..8888fff 100644
+--- a/src/usr/targeting/common/xmltohb/attribute_types_hb.xml
++++ b/src/usr/targeting/common/xmltohb/attribute_types_hb.xml
+@@ -5,7 +5,7 @@
+ <!--                                                                        -->
+ <!-- OpenPOWER HostBoot Project                                             -->
+ <!--                                                                        -->
+-<!-- Contributors Listed Below - COPYRIGHT 2012,2016                        -->
++<!-- Contributors Listed Below - COPYRIGHT 2012,2017                        -->
+ <!-- [+] Google Inc.                                                        -->
+ <!-- [+] International Business Machines Corp.                              -->
+ <!--                                                                        -->
+@@ -141,9 +141,9 @@
+     </description>
+     <simpleType>
+         <uint8_t>
+-            <default>2,2,2,2,2,2</default>
++            <default>2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2</default>
+         </uint8_t>
+-        <array>2,3</array>
++        <array>4,4</array>
+     </simpleType>
+     <persistency>volatile</persistency>
+     <readable/>
+diff --git a/src/usr/targeting/common/xmltohb/target_types_hb.xml b/src/usr/targeting/common/xmltohb/target_types_hb.xml
+index 4e2447d..486b2c4 100755
+--- a/src/usr/targeting/common/xmltohb/target_types_hb.xml
++++ b/src/usr/targeting/common/xmltohb/target_types_hb.xml
+@@ -5,7 +5,7 @@
+ <!--                                                                        -->
+ <!-- OpenPOWER HostBoot Project                                             -->
+ <!--                                                                        -->
+-<!-- Contributors Listed Below - COPYRIGHT 2012,2016                        -->
++<!-- Contributors Listed Below - COPYRIGHT 2012,2017                        -->
+ <!-- [+] Google Inc.                                                        -->
+ <!-- [+] International Business Machines Corp.                              -->
+ <!--                                                                        -->
+@@ -159,7 +159,7 @@
+     </attribute>
+     <attribute>
+         <id>EEPROM_PAGE_ARRAY</id>
+-        <default>2,2,2,2,2,2</default>
++          <default>2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2</default>
+     </attribute>
+     <attribute>
+         <id>XSCOM_VIRTUAL_ADDR</id>
+@@ -187,7 +187,7 @@
+     </attribute>
+     <attribute>
+         <id>EEPROM_PAGE_ARRAY</id>
+-        <default>2,2,2,2,2,2</default>
++          <default>2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2</default>
+     </attribute>
+     <attribute>
+         <id>I2C_ENGINE_MUTEX_0</id>
+-- 
+1.8.2.2
+
