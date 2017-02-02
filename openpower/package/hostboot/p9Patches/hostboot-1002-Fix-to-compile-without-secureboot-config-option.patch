@@ -1,0 +1,30 @@
+From 25cdfbc79e3c3d61d6157d0ba969335189dd1f26 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 3 Feb 2017 20:52:02 -0600
+Subject: [PATCH v1 1002/1004] Fix to compile without secureboot config option
+
+Change-Id: I6fca0b735447087317228c567b7762b397db87e5
+---
+ src/usr/secureboot/base/service.C | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/usr/secureboot/base/service.C b/src/usr/secureboot/base/service.C
+index 6a8a359..a381c4f 100644
+--- a/src/usr/secureboot/base/service.C
++++ b/src/usr/secureboot/base/service.C
+@@ -92,10 +92,12 @@ void* initializeBase(void* unused)
+     return l_errl;
+ }
+ 
++#if defined(CONFIG_SECUREBOOT) && !defined(__HOSTBOOT_RUNTIME)
+ bool enabled()
+ {
+     return Singleton<Settings>::instance().getEnabled();
+ }
++#endif
+ 
+ errlHndl_t getSecuritySwitch(uint64_t& o_regValue, TARGETING::Target* i_targ)
+ {
+-- 
+1.8.2.2
+

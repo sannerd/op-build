@@ -1,0 +1,474 @@
+From b569ace39a0628c1b25ea668d06ba5ae9f979bfd Mon Sep 17 00:00:00 2001
+From: "Richard J. Knight" <rjknight@us.ibm.com>
+Date: Sat, 6 Aug 2016 13:37:39 -0500
+Subject: [PATCH v1 1004/1004] OP820:OPRASGS:Garrison:Hostboot IPL fails to
+ halt during shutdown reconfig
+
+    -Added the ability to notify the istep dispacher discontinue
+     executing isteps
+    -Added call to stopIpl() api in sbe update path
+    -Added internal graceful reboot request for SBE update and
+     reconfigure re-ipl usage
+
+Change-Id: I5682992802b0f373df91378a38187d032bb3a0b4
+CQ:SW361886
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/27959
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Reviewed-by: William G. Hoffa <wghoffa@us.ibm.com>
+Tested-by: Jenkins OP Build CI <op-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins OP HW <op-hw-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Daniel M. Crowell <dcrowell@us.ibm.com>
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Matthew A. Ploetz <maploetz@us.ibm.com>
+---
+ src/include/usr/initservice/istepdispatcherif.H    | 18 +++++
+ src/include/usr/ipmi/ipmiif.H                      | 10 ++-
+ .../initservice/istepdispatcher/istepdispatcher.C  | 94 +++++++++++++++++++---
+ .../initservice/istepdispatcher/istepdispatcher.H  | 23 ++++++
+ src/usr/ipmi/ipmichassiscontrol.C                  |  5 ++
+ src/usr/ipmi/ipmirp.C                              | 47 ++++++++++-
+ src/usr/sbe/sbe_resolve_sides.C                    | 25 ++----
+ 7 files changed, 188 insertions(+), 34 deletions(-)
+
+diff --git a/src/include/usr/initservice/istepdispatcherif.H b/src/include/usr/initservice/istepdispatcherif.H
+index 69cebf0..752f9ff 100644
+--- a/src/include/usr/initservice/istepdispatcherif.H
++++ b/src/include/usr/initservice/istepdispatcherif.H
+@@ -70,6 +70,24 @@ bool isShutdownRequested ( void );
+ 
+ /**
+  * @brief This function is to be used by external code to tell
++ *      this instance of istepdispatcher to stop executing steps
++ *
++ * @return Nothing
++ */
++void stopIpl( void );
++
++#ifdef CONFIG_BMC_IPMI
++/**
++ * @brief This function is to be used by external code to
++ *        initate a system reboot via IPMI commands
++ *
++ * @return Nothing
++ */
++void requestReboot( void );
++#endif
++
++/**
++ * @brief This function is to be used by external code to tell
+  *      this instance of istepdispatcher whether it should
+  *      accept istep messages or not
+  *
+diff --git a/src/include/usr/ipmi/ipmiif.H b/src/include/usr/ipmi/ipmiif.H
+index 51bafb3..09f0c48 100644
+--- a/src/include/usr/ipmi/ipmiif.H
++++ b/src/include/usr/ipmi/ipmiif.H
+@@ -54,8 +54,11 @@ namespace IPMI
+ 
+         MSG_STATE_GRACEFUL_SHUTDOWN,
+ 
++        // initate a reboot request
++        MSG_STATE_INITATE_POWER_CYCLE,
++
+         // Used to check range. Leave as last.
+-        MSG_LAST_TYPE = MSG_STATE_GRACEFUL_SHUTDOWN,
++        MSG_LAST_TYPE = MSG_STATE_INITATE_POWER_CYCLE,
+     };
+ 
+     // chassis power off request types
+@@ -345,6 +348,11 @@ namespace IPMI
+      */
+     size_t max_buffer(void);
+ 
++    /**
++     * Tells ipmirp to start a graceful reboot sequence
++     *
++     */
++    void initiateReboot();
+ 
+     /**
+      * Structure to return BMC/IPMI information in
+diff --git a/src/usr/initservice/istepdispatcher/istepdispatcher.C b/src/usr/initservice/istepdispatcher/istepdispatcher.C
+index a963b58..76c0762 100644
+--- a/src/usr/initservice/istepdispatcher/istepdispatcher.C
++++ b/src/usr/initservice/istepdispatcher/istepdispatcher.C
+@@ -66,7 +66,7 @@
+ #include <pnor/pnorif.H>
+ #include <ipmi/ipmiwatchdog.H>      //IPMI watchdog timer
+ #include <ipmi/ipmipowerstate.H>    //IPMI System ACPI Power State
+-#include <ipmi/ipmichassiscontrol.H> 
++#include <ipmi/ipmichassiscontrol.H>
+ #include <config.h>
+ #include <ipmi/ipmisensor.H>
+ #include <ipmi/ipmiif.H>
+@@ -116,7 +116,8 @@ IStepDispatcher::IStepDispatcher() :
+     iv_istepToCompleteBeforeShutdown(0),
+     iv_substepToCompleteBeforeShutdown(0),
+     iv_acceptIstepMessages(true),
+-    iv_newGardRecord(false)
++    iv_newGardRecord(false),
++    iv_stopIpl(false)
+ 
+ {
+     mutex_init(&iv_bkPtMutex);
+@@ -377,6 +378,25 @@ errlHndl_t IStepDispatcher::executeAllISteps()
+         substep = 0;
+         while (substep < g_isteps[istep].numitems)
+         {
++            if( iv_stopIpl == true )
++            {
++#ifdef CONFIG_BMC_IPMI
++                // if we came in here and we are connected to a BMC, then
++                // we are in the process of an orderly shutdown, reset the
++                // watchdog to give ample time for the graceful shutdown
++                // to proceed.
++                errlHndl_t err_ipmi = IPMIWATCHDOG::resetWatchDogTimer();
++                if(err_ipmi)
++                {
++                    TRACFCOMP(g_trac_initsvc,
++                            "init: ERROR: reset IPMI watchdog Failed");
++                    err_ipmi->collectTrace("INITSVC", 1024);
++                    errlCommit(err_ipmi, INITSVC_COMP_ID );
++                }
++#endif
++                stop();
++            }
++
+             err = doIstep(istep, substep, l_doReconfig);
+ 
+             if (l_doReconfig)
+@@ -564,26 +584,24 @@ errlHndl_t IStepDispatcher::executeAllISteps()
+                                     "not increment reboot count.");
+                             }
+ 
++                            // discontinue isteps
++                            iv_stopIpl = true;
++
+                             // Request BMC to do power cycle that sends shutdown
+                             // and reset the host
+-                            err = IPMI::chassisControl
+-                                    (IPMI::CHASSIS_POWER_CYCLE);
+-                            if (err)
+-                            {
+-                                TRACFCOMP(g_trac_initsvc, ERR_MRK
+-                                "FAIL executing chassisControl command");
+-                                break;
+-                            }
++                            requestReboot();
++
+                             #endif
+                             #ifdef CONFIG_CONSOLE
+                             CONSOLE::displayf(NULL,
+                                "System Shutting Down "
+-                               "To Perform Reconfiguration\n");
++                               "To Perform Reconfiguration");
+                             CONSOLE::flush();
+                             #endif
+                             #ifndef CONFIG_BMC_IPMI
+                             shutdownDuringIpl();
+                             #endif
++
+                         }
+                     }
+                     // else return the error from doIstep
+@@ -616,6 +634,29 @@ errlHndl_t IStepDispatcher::executeAllISteps()
+     return err;
+ }
+ 
++
++
++//-----------------------------------------------------------------------------
++// IStepDispatcher::stop()
++// ---------------------------------------------------------------------------
++void IStepDispatcher::stop()
++{
++
++#ifdef CONFIG_CONSOLE
++    CONSOLE::displayf(NULL,"Stopping istep dispatcher");
++    CONSOLE::flush();
++#endif
++
++    TRACFCOMP(g_trac_initsvc, "IStepDispatcher::stop() - Stopping istep"
++            "dispatcher.");
++
++    printk( "IStepDispatcher stopping" );
++    while(1)
++    {
++        task_yield();
++    }
++}
++
+ // ----------------------------------------------------------------------------
+ // IStepDispatcher::doIstep()
+ // ----------------------------------------------------------------------------
+@@ -1333,7 +1374,12 @@ void IStepDispatcher::handleShutdownMsg(msg_t * & io_pMsg)
+     TRACFCOMP(g_trac_initsvc, EXIT_MRK"IStepDispatcher::handleShutdownMsg");
+ }
+ 
+-
++#ifdef CONFIG_BMC_IPMI
++void IStepDispatcher::requestReboot()
++{
++    IPMI::initiateReboot();
++}
++#endif
+ // ----------------------------------------------------------------------------
+ // IStepDispatcher::shutdownDuringIpl()
+ // ----------------------------------------------------------------------------
+@@ -1387,6 +1433,20 @@ void IStepDispatcher::shutdownDuringIpl()
+     }
+ 
+ }
++// -----------------------------------------------------------------------------
++// IStepDispatcher::setStopIpl()
++// -----------------------------------------------------------------------------
++void IStepDispatcher::setStopIpl()
++{
++    TRACDCOMP(g_trac_initsvc, ENTER_MRK"IStepDispatcher::setStopIpl");
++
++    mutex_lock(&iv_mutex);
++    iv_stopIpl = true;
++    mutex_unlock(&iv_mutex);
++
++    TRACDCOMP(g_trac_initsvc, EXIT_MRK"IStepDispatcher::setStopIpl");
++    return;
++}
+ 
+ // ----------------------------------------------------------------------------
+ // IStepDispatcher::iStepBreakPoint()
+@@ -2008,6 +2068,16 @@ void setNewGardRecord()
+ {
+     return IStepDispatcher::getTheInstance().setNewGardRecord();
+ }
++#ifdef CONFIG_BMC_IPMI
++void requestReboot()
++{
++    IStepDispatcher::getTheInstance().requestReboot();
++}
++#endif
++void stopIpl()
++{
++    return IStepDispatcher::getTheInstance().setStopIpl();
++}
+ 
+ // ----------------------------------------------------------------------------
+ // IStepDispatcher::getIstepInfo()
+diff --git a/src/usr/initservice/istepdispatcher/istepdispatcher.H b/src/usr/initservice/istepdispatcher/istepdispatcher.H
+index 186639f..2ef7c75 100644
+--- a/src/usr/initservice/istepdispatcher/istepdispatcher.H
++++ b/src/usr/initservice/istepdispatcher/istepdispatcher.H
+@@ -203,6 +203,25 @@ public:
+      */
+     void setNewGardRecord();
+ 
++    /**
++     * @brief This function will set a boolean true which tells the istep
++     * dispacher to stop executing steps
++     */
++    void setStopIpl();
++
++    /**
++     * @brief This function will stop the istep dispacher from continuing to
++     * execute steps
++     */
++    void stop();
++#ifdef CONFIG_BMC_IPMI
++    /**
++     * @brief This function will trigger a reboot via ipmi commands
++     */
++    void requestReboot();
++#endif
++
++
+ protected:
+ 
+     /**
+@@ -424,6 +443,10 @@ private:
+     // Instance variable to state if a new gard record was committed
+     bool iv_newGardRecord;
+ 
++    // Instance variable to state if a power off is in progress and
++    // the istep dispatcher should stop executing steps
++    bool iv_stopIpl;
++
+     // Message Queue for receiving message from SP or SPless user console
+     msg_q_t iv_msgQ;
+ 
+diff --git a/src/usr/ipmi/ipmichassiscontrol.C b/src/usr/ipmi/ipmichassiscontrol.C
+index 1d17c36..ff4161e 100644
+--- a/src/usr/ipmi/ipmichassiscontrol.C
++++ b/src/usr/ipmi/ipmichassiscontrol.C
+@@ -36,6 +36,7 @@
+ #include <errl/errlentry.H>
+ #include <ipmi/ipmichassiscontrol.H>
+ #include <ipmi/ipmiif.H>
++#include <initservice/istepdispatcherif.H>
+ 
+ /******************************************************************************/
+ // Globals/Constants
+@@ -75,6 +76,10 @@ errlHndl_t chassisControl(const uint8_t i_chassisControlState )
+         IPMI_TRAC("Chassis control : BMC returned not ok CC[%x]",cc);
+     }
+ 
++    // power off command has been sent to the BMC, tell the istep dispacher to
++    // stop executing steps.
++    INITSERVICE::stopIpl();
++
+     return err_ipmi;
+ }
+ } // namespace
+diff --git a/src/usr/ipmi/ipmirp.C b/src/usr/ipmi/ipmirp.C
+index c7e702e..4c5db3f 100644
+--- a/src/usr/ipmi/ipmirp.C
++++ b/src/usr/ipmi/ipmirp.C
+@@ -40,6 +40,7 @@
+ #include <sys/task.h>
+ #include <initservice/taskargs.H>
+ #include <initservice/initserviceif.H>
++#include <initservice/istepdispatcherif.H>
+ #include <sys/vfs.h>
+ 
+ #include <targeting/common/commontargeting.H>
+@@ -459,6 +460,9 @@ void IpmiRP::handlePowerMessage( IPMI::oemSEL* i_event )
+             break;
+         }
+ 
++        // tell the istep dispacher to stop executing isteps
++        INITSERVICE::stopIpl();
++
+         // register for the post memory flush callback
+         INITSERVICE::registerShutdownEvent(iv_msgQ,
+                         IPMI::MSG_STATE_GRACEFUL_SHUTDOWN,
+@@ -470,6 +474,7 @@ void IpmiRP::handlePowerMessage( IPMI::oemSEL* i_event )
+         // initiate the shutdown processing in the background
+         INITSERVICE::doShutdown(SHUTDOWN_STATUS_GOOD,true);
+ 
++
+     } while (0);
+ 
+ }
+@@ -563,6 +568,7 @@ void IpmiRP::execute(void)
+ 
+     while (true)
+     {
++
+         msg_t* msg = msg_wait(iv_msgQ);
+ 
+         const IPMI::msg_type msg_type =
+@@ -682,15 +688,41 @@ void IpmiRP::execute(void)
+ 
+                 iv_shutdown_msg = msg;   // Reply to this message
+ 
+-
+ #ifdef CONFIG_CONSOLE
+-            CONSOLE::displayf(NULL, "IPMI: shutdown complete");
++            CONSOLE::displayf(NULL, "IPMI: shutdown complete\n");
+             CONSOLE::flush();
+ #endif
+ 
+             }
+             break;
+ 
++            // begin a graceful reboot initated by us
++        case IPMI::MSG_STATE_INITATE_POWER_CYCLE:
++            {
++                msg_free(msg);
++
++#ifdef CONFIG_CONSOLE
++                CONSOLE::displayf(NULL, "IPMI: Initiate power cycle");
++                CONSOLE::flush();
++#endif
++                // setup the power cmd modifier to tell the bmc to
++                // do a power reset
++                iv_chassis_power_mod = IPMI::CHASSIS_POWER_RESET;
++
++                // register for the post memory flush callback
++                INITSERVICE::registerShutdownEvent(iv_msgQ,
++                        IPMI::MSG_STATE_GRACEFUL_SHUTDOWN,
++                        INITSERVICE::POST_MEM_FLUSH_NOTIFY_LAST);
++
++                iv_graceful_shutdown_pending = true;
++                lwsync();
++
++                // initiate the shutdown processing in the background
++                INITSERVICE::doShutdown(SHUTDOWN_STATUS_GOOD,true);
++
++            }
++            break;
++
+         };
+ 
+         // There's a good chance the interface will be idle right after
+@@ -1047,6 +1079,17 @@ namespace IPMI
+     }
+ 
+     ///
++    /// @brief  kick off a reboot
++    ///
++    void initiateReboot()
++    {
++        static msg_q_t mq = Singleton<IpmiRP>::instance().msgQueue();
++        msg_t * msg = msg_allocate();
++        msg->type =  IPMI::MSG_STATE_INITATE_POWER_CYCLE;
++        msg_send(mq, msg);
++    }
++
++    ///
+     /// @brief  Maximum buffer for data (max xport - header)
+     ///
+     size_t max_buffer(void)
+diff --git a/src/usr/sbe/sbe_resolve_sides.C b/src/usr/sbe/sbe_resolve_sides.C
+index 44945bd..e39fda9 100644
+--- a/src/usr/sbe/sbe_resolve_sides.C
++++ b/src/usr/sbe/sbe_resolve_sides.C
+@@ -41,6 +41,7 @@
+ #include <sys/misc.h>
+ #include <hwas/common/deconfigGard.H>
+ #include <initservice/initserviceif.H>
++#include <initservice/istepdispatcherif.H>
+ #include <console/consoleif.H>
+ #include <config.h>
+ #include <ipmi/ipmiif.H>
+@@ -291,8 +292,7 @@ errlHndl_t resolveProcessorSbeSeeproms()
+ 
+ #ifdef CONFIG_CONSOLE
+             CONSOLE::displayf(SBE_COMP_NAME, "System Rebooting  To "
+-                              "Perform SBE Update\n");
+-
++                              "Perform SBE Update");
+             CONSOLE::flush();
+ #endif
+ 
+@@ -1163,25 +1163,12 @@ errlHndl_t sbePreRebootIpmiCalls( void )
+         TRACFCOMP( g_trac_sbe,"sbePreRebootIpmiCalls: "
+                    "requesting chassis power cycle");
+ 
+-        // Request BMC to do power cycle that sends shutdown
+-        // and reset the host
+-        err = IPMI::chassisControl(IPMI::CHASSIS_POWER_CYCLE);
+-        if(err)
+-        {
+-            TRACFCOMP( g_trac_sbe,
+-                ERR_MRK"sbePreRebootIpmiCalls: "
+-                "FAIL executing chassisiControl"
+-                "Error Log rc=0x%.4X eid=0x%.8X "
+-                "plid=0x%.8X ",
+-                err->reasonCode(),
+-                err->eid(),
+-                err->plid());
+-
+-                err->collectTrace(SBE_COMP_NAME);
+-         }
++        // tell the istepdispacher to stop
++        INITSERVICE::stopIpl();
+ 
++        // initate a graceful power cycle
++        INITSERVICE::requestReboot();
+ 
+-        
+     }while(0);
+ 
+     TRACFCOMP( g_trac_sbe, EXIT_MRK"sbePreRebootIpmiCalls");
+-- 
+1.8.2.2
+

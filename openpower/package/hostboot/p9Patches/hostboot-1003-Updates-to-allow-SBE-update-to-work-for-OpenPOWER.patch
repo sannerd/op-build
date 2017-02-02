@@ -1,0 +1,57 @@
+From 63e333f16c98370421951bbdf7317a7954b86a6a Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 3 Feb 2017 20:59:31 -0600
+Subject: [PATCH v1 1003/1004] Updates to allow SBE update to work for
+ OpenPOWER
+
+   - RINGOVD partition is optional, don't error out on it
+   - Default ATTR_SYSTEM_IPL_PHASE to  HB IPL PHASE
+
+Change-Id: Ia672617713aee9e35345c76aab0bba96bc999024
+---
+ src/usr/sbe/sbe_update.C                             | 4 +++-
+ src/usr/targeting/common/xmltohb/attribute_types.xml | 6 ++++--
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/src/usr/sbe/sbe_update.C b/src/usr/sbe/sbe_update.C
+index 5281833..69ffaec 100644
+--- a/src/usr/sbe/sbe_update.C
++++ b/src/usr/sbe/sbe_update.C
+@@ -1070,9 +1070,11 @@ namespace SBE
+             l_err = PNOR::getSectionInfo(PNOR::RINGOVD, l_pnorRingOvd);
+             if(l_err)
+             {
++                delete l_err;
++                l_err = NULL;
+                 TRACFCOMP( g_trac_sbe,
+                            ERR_MRK"ringOvd():Error trying to read RINGOVD "
+-                           "from PNOR!");
++                           "from PNOR.  It is optional, continuing");
+                 io_ovdImgSize = 0;
+                 break;
+             }
+diff --git a/src/usr/targeting/common/xmltohb/attribute_types.xml b/src/usr/targeting/common/xmltohb/attribute_types.xml
+index 6f7af50..9b74f08 100644
+--- a/src/usr/targeting/common/xmltohb/attribute_types.xml
++++ b/src/usr/targeting/common/xmltohb/attribute_types.xml
+@@ -21121,13 +21121,15 @@ Measured in GB</description>
+       Provided by the platform.
+       HB_IPL = 0x1,HB_RUNTIME = 0x2,CACHE_CONTAINED = 0x4</description>
+   <simpleType>
+-    <uint8_t></uint8_t>
++    <uint8_t>
++      <default>0x01</default>
++    </uint8_t>
+   </simpleType>
+   <hwpfToHbAttrMap>
+     <id>ATTR_SYSTEM_IPL_PHASE</id>
+     <macro>DIRECT</macro>
+   </hwpfToHbAttrMap>
+-  <persistency>volatile-zeroed</persistency>
++  <persistency>non-volatile</persistency>
+   <readable/>
+   <writeable/>
+ </attribute>
+-- 
+1.8.2.2
+

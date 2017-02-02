@@ -1,0 +1,1001 @@
+From 4987f279a24d4e646f5983b73d972e11731b3746 Mon Sep 17 00:00:00 2001
+From: nagurram-in <nagendra.g@in.ibm.com>
+Date: Tue, 31 Jan 2017 23:50:35 -0600
+Subject: [PATCH v1 1000/1004] Dumping full vpd into HDAT
+
+Change-Id: I34f5ce9d702818254d44a0dd979b277b75ebc861
+---
+ src/include/usr/hdat/hdat_reasoncodes.H |   4 +-
+ src/include/usr/vpd/cvpdenums.H         |   1 -
+ src/include/usr/vpd/mvpdenums.H         |   1 -
+ src/usr/hdat/hdatbldda.C                |  70 +------
+ src/usr/hdat/hdatbldda.H                |  10 +-
+ src/usr/hdat/hdatiohub.C                |   2 -
+ src/usr/hdat/hdatmsarea.C               |   2 -
+ src/usr/hdat/hdatpcrd.C                 |   2 -
+ src/usr/hdat/hdatram.C                  |   1 -
+ src/usr/hdat/hdatspsubsys.C             |   2 -
+ src/usr/hdat/hdatutil.C                 | 319 ++++++++++++++++++++++++++++++++
+ src/usr/hdat/hdatutil.H                 |  67 ++++++-
+ src/usr/hdat/hdatvpd.C                  |  97 +++++++++-
+ src/usr/hdat/hdatvpd.H                  |  46 ++++-
+ src/usr/hdat/makefile                   |   4 +-
+ src/usr/vpd/cvpd.H                      |   1 -
+ src/usr/vpd/mvpd.H                      |   1 -
+ 17 files changed, 546 insertions(+), 84 deletions(-)
+
+diff --git a/src/include/usr/hdat/hdat_reasoncodes.H b/src/include/usr/hdat/hdat_reasoncodes.H
+index 2eb0114..7e10aa2 100755
+--- a/src/include/usr/hdat/hdat_reasoncodes.H
++++ b/src/include/usr/hdat/hdat_reasoncodes.H
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2015,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2015,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -103,6 +103,8 @@ enum HDATModuleId
+   MOD_HBRT_LOAD_DATA           = 0x2c,
+   MOD_UTIL_FULL_MVPD_READ_FUNC = 0x2d,
+   MOD_HDAT_SPSUBSYS_FILL_DATA_PTRS = 0x2e,
++  MOD_UTIL_PVPD_FULL_READ_FUNC = 0x2f,
++  MOD_UTIL_MVPD                = 0x30,
+ };
+ 
+ 
+diff --git a/src/include/usr/vpd/cvpdenums.H b/src/include/usr/vpd/cvpdenums.H
+index d4a9cd4..5af38dd 100644
+--- a/src/include/usr/vpd/cvpdenums.H
++++ b/src/include/usr/vpd/cvpdenums.H
+@@ -131,7 +131,6 @@ namespace CVPD
+         pd6         = 0x44, //#6
+         pd8         = 0x45, //#8
+         pdY         = 0x46, //#Y
+-        RT          = 0x47, 
+ 
+         // Last Keyword
+         CVPD_LAST_KEYWORD,
+diff --git a/src/include/usr/vpd/mvpdenums.H b/src/include/usr/vpd/mvpdenums.H
+index 31649d7..fb0a1a0 100644
+--- a/src/include/usr/vpd/mvpdenums.H
++++ b/src/include/usr/vpd/mvpdenums.H
+@@ -123,7 +123,6 @@ enum mvpdKeyword
+     L6          = 0x28,
+     L7          = 0x29,
+     L8          = 0x2A,
+-    RT          = 0x2B,
+ 
+     // Last Keyword
+     MVPD_LAST_KEYWORD,
+diff --git a/src/usr/hdat/hdatbldda.C b/src/usr/hdat/hdatbldda.C
+index 34458db..55dd10f 100755
+--- a/src/usr/hdat/hdatbldda.C
++++ b/src/usr/hdat/hdatbldda.C
+@@ -46,72 +46,13 @@
+ 
+ namespace HDAT
+ {
+-/*----------------------------------------------------------------------------*/
+-/* Global variables                                                           */
+-/*----------------------------------------------------------------------------*/
+-
+-
+-
+-/*----------------------------------------------------------------------------*/
+-/* Constants                                                                  */
+-/*----------------------------------------------------------------------------*/
+-
+-// Backplane keyword and record details
+-static vpdData pvpdData[] =
+-{
+-    { PVPD::VINI, PVPD::RT },
+-    { PVPD::VINI, PVPD::DR },
+-    { PVPD::VINI, PVPD::CE },
+-    { PVPD::VINI, PVPD::VZ },
+-    { PVPD::VINI, PVPD::FN },
+-    { PVPD::VINI, PVPD::SN },
+-    { PVPD::VINI, PVPD::CC },
+-    { PVPD::VINI, PVPD::HE },
+-    { PVPD::VINI, PVPD::CT },
+-    { PVPD::VINI, PVPD::B3 },
+-    { PVPD::VINI, PVPD::B4 },
+-    { PVPD::VINI, PVPD::B7 },
+-    { PVPD::VINI, PVPD::PF },
+-    { PVPD::OPFR, PVPD::RT },
+-    { PVPD::OPFR, PVPD::VP },
+-    { PVPD::OPFR, PVPD::VS },
+-    { PVPD::OPFR, PVPD::DR },
+-    { PVPD::OPFR, PVPD::VN },
+-    { PVPD::OSYS, PVPD::RT },
+-    { PVPD::OSYS, PVPD::MM },
+-    { PVPD::OSYS, PVPD::SS },
+-};
+-const HdatKeywordInfo l_pvpdKeywords[] =
+-{
+-    { PVPD::RT,  "RT" },
+-    { PVPD::DR,  "DR" },
+-    { PVPD::CE,  "CE" },
+-    { PVPD::VZ,  "VZ" },
+-    { PVPD::FN,  "FN" },
+-    { PVPD::SN,  "SN" },
+-    { PVPD::CC,  "CC" },
+-    { PVPD::HE,  "HE" },
+-    { PVPD::CT,  "CT" },
+-    { PVPD::B3,  "B3" },
+-    { PVPD::B4,  "B4" },
+-    { PVPD::B7,  "B7" },
+-    { PVPD::PF,  "PF" },
+-    { PVPD::VP,  "VP" },
+-    { PVPD::VS,  "VS" },
+-    { PVPD::DR,  "DR" },
+-    { PVPD::VN,  "VN" },
+-    { PVPD::MM,  "MM" },
+-    { PVPD::SS,  "SS" },
+-};
+-
+-
+ 
+ /**
+  * @brief See the prologue in hdatbldda.H
+  */
+ errlHndl_t hdatProcessFru(const hdatMsAddr_t &i_msAddr,
+                                  const hdatSpiraDataAreas i_dataArea,
+-                                 struct vpdData i_fetchVpd[],
++                                 const IpVpdFacade::recordInfo i_fetchVpd[],
+                                  const uint8_t i_size,
+                                  vpdType i_vpdtype,
+                                  uint32_t &o_count,
+@@ -175,6 +116,7 @@ errlHndl_t hdatProcessFru(const hdatMsAddr_t &i_msAddr,
+         if (NULL == l_errlHndl)
+         {
+             uint32_t l_num = i_size/sizeof (i_fetchVpd[0]);
++           l_num -= 1 ;  // The last record is TEST record.which shouldn't be used.
+ 
+             assert((l_targList[l_cnt]->tryGetAttr<TARGETING::ATTR_SLCA_RID>
+             (l_hdatRID)));
+@@ -187,7 +129,7 @@ errlHndl_t hdatProcessFru(const hdatMsAddr_t &i_msAddr,
+                                     l_cnt,
+                                     i_vpdtype,
+                                     i_fetchVpd,
+-                                    l_num,l_pvpdKeywords);
++                                    l_num);
+ 
+ 
+             if (NULL == l_errlHndl)
+@@ -244,7 +186,7 @@ errlHndl_t hdatBldSpecificVpd(hdatSpiraDataAreas i_dataArea,
+     HDAT_ENTER();
+ 
+     errlHndl_t l_errlHndl = NULL;
+-    struct vpdData *l_data = NULL;
++    const IpVpdFacade::recordInfo *l_data = NULL;
+     vpdType l_type = BP;
+     uint8_t l_size = 0;
+ 
+@@ -255,8 +197,8 @@ errlHndl_t hdatBldSpecificVpd(hdatSpiraDataAreas i_dataArea,
+     {
+         case HDAT_BACKPLANE_VPD:
+         case HDAT_SYS_VPD:
+-        l_data = pvpdData;
+-        l_size = sizeof(pvpdData);
++        l_data = pvpdRecords;
++        l_size = sizeof(pvpdRecords);
+         l_type = BP;
+         break;
+ 
+diff --git a/src/usr/hdat/hdatbldda.H b/src/usr/hdat/hdatbldda.H
+index 84dc6a6..7ac6a49 100755
+--- a/src/usr/hdat/hdatbldda.H
++++ b/src/usr/hdat/hdatbldda.H
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -42,6 +42,12 @@
+ #include "hdatvpd.H"
+ #include <errl/errlentry.H>       // ErrlEntry class definition
+ #include <hdat/hdat_reasoncodes.H>
++#include <../vpd/mvpd.H>
++#include <../vpd/ipvpd.H>
++#include <../vpd/pvpd.H>
++using namespace MVPD;
++using namespace PVPD;
++using namespace IPVPD;
+ 
+ namespace HDAT
+ {
+@@ -142,7 +148,7 @@ errlHndl_t hdatBldSpecificVpd(hdatSpiraDataAreas i_dataArea,
+  */
+ errlHndl_t hdatProcessFru(const hdatMsAddr_t &i_msAddr,
+                                 const hdatSpiraDataAreas i_dataArea,
+-                                struct vpdData i_fetchVpd[],
++                                const IpVpdFacade::recordInfo i_fetchVpd[],
+                                 const uint8_t i_size,
+                                 vpdType i_vpdtype,
+                                 uint32_t &o_count,
+diff --git a/src/usr/hdat/hdatiohub.C b/src/usr/hdat/hdatiohub.C
+index efb851a..6b36436 100644
+--- a/src/usr/hdat/hdatiohub.C
++++ b/src/usr/hdat/hdatiohub.C
+@@ -39,7 +39,6 @@ namespace HDAT
+ 
+ vpdData mvpdData[] =
+ {
+-    { PVPD::VINI, PVPD::RT },
+     { PVPD::VINI, PVPD::DR },
+     { PVPD::VINI, PVPD::CE },
+     { PVPD::VINI, PVPD::VZ },
+@@ -58,7 +57,6 @@ vpdData mvpdData[] =
+ 
+ const HdatKeywordInfo l_pvpdKeywords[] =
+ {
+-    { PVPD::RT,  "RT" },
+     { PVPD::DR,  "DR" },
+     { PVPD::CE,  "CE" },
+     { PVPD::VZ,  "VZ" },
+diff --git a/src/usr/hdat/hdatmsarea.C b/src/usr/hdat/hdatmsarea.C
+index 43a4781..e8ff98d 100755
+--- a/src/usr/hdat/hdatmsarea.C
++++ b/src/usr/hdat/hdatmsarea.C
+@@ -50,7 +50,6 @@ uint32_t HdatMsArea::cv_actualCnt;
+ 
+ static vpdData cvpdData[] =
+ {
+-    { MVPD::VINI, MVPD::RT },
+     { MVPD::VINI, MVPD::DR },
+     { MVPD::VINI, MVPD::FN },
+     { MVPD::VINI, MVPD::PN },
+@@ -68,7 +67,6 @@ static vpdData cvpdData[] =
+ 
+ const HdatKeywordInfo l_cvpdKeywords[] =
+ {
+-    { CVPD::RT,  "RT" },
+     { CVPD::DR,  "DR" },
+     { CVPD::FN,  "FN" },
+     { CVPD::PN,  "PN" },
+diff --git a/src/usr/hdat/hdatpcrd.C b/src/usr/hdat/hdatpcrd.C
+index 5765c6b..85e8198 100644
+--- a/src/usr/hdat/hdatpcrd.C
++++ b/src/usr/hdat/hdatpcrd.C
+@@ -47,7 +47,6 @@ extern trace_desc_t *g_trac_hdat;
+  */
+ vpdData procVpdData[] =
+ {
+-    { MVPD::VINI, MVPD::RT },
+     { MVPD::VINI, MVPD::DR },
+     { MVPD::VINI, MVPD::VZ },
+     { MVPD::VINI, MVPD::CC },
+@@ -63,7 +62,6 @@ vpdData procVpdData[] =
+ 
+ const HdatKeywordInfo l_mvpdKeywords[] =
+ {
+-    { MVPD::RT, "RT" },
+     { MVPD::DR, "DR" },
+     { MVPD::VZ, "VZ" },
+     { MVPD::CC, "CC" },
+diff --git a/src/usr/hdat/hdatram.C b/src/usr/hdat/hdatram.C
+index f945fd2..68c842d 100755
+--- a/src/usr/hdat/hdatram.C
++++ b/src/usr/hdat/hdatram.C
+@@ -49,7 +49,6 @@ uint32_t HdatRam::cv_actualCnt;
+ 
+ vpdData cvpdData[] =
+ {
+-    { CVPD::VINI, CVPD::RT },
+     { CVPD::VINI, CVPD::DR },
+     { CVPD::VINI, CVPD::FN },
+     { CVPD::VINI, CVPD::PN },
+diff --git a/src/usr/hdat/hdatspsubsys.C b/src/usr/hdat/hdatspsubsys.C
+index 27e6018..46f373c 100755
+--- a/src/usr/hdat/hdatspsubsys.C
++++ b/src/usr/hdat/hdatspsubsys.C
+@@ -61,7 +61,6 @@ uint32_t HdatSpSubsys::cv_actualCnt;
+ 
+ vpdData mvpdDataTable[] =
+ {
+-    { MVPD::VINI, MVPD::RT },
+     { MVPD::VINI, MVPD::DR },
+     { MVPD::VINI, MVPD::VZ },
+     { MVPD::VINI, MVPD::CC },
+@@ -77,7 +76,6 @@ vpdData mvpdDataTable[] =
+ 
+ const HdatKeywordInfo l_mvpdKeywords[] =
+ {
+-    { MVPD::RT, "RT" },
+     { MVPD::DR, "DR" },
+     { MVPD::VZ, "VZ" },
+     { MVPD::CC, "CC" },
+diff --git a/src/usr/hdat/hdatutil.C b/src/usr/hdat/hdatutil.C
+index b0ce7b5..99c4024 100644
+--- a/src/usr/hdat/hdatutil.C
++++ b/src/usr/hdat/hdatutil.C
+@@ -28,6 +28,8 @@
+ #include <stdio.h>
+ 
+ #define UINT16_IN_LITTLE_ENDIAN(x) (((x) >> 8) | ((x) << 8))
++#define HDAT_VPD_RECORD_START_TAG 0x84
++#define HDAT_VPD_RECORD_END_TAG 0x78
+ 
+ using namespace TARGETING;
+ namespace HDAT
+@@ -497,6 +499,37 @@ errlHndl_t hdatGetAsciiKwd( TARGETING::Target * i_target,uint32_t &o_kwdSize,
+ }//end hdatGetAsciiKwd
+ 
+ /******************************************************************************/
++//hdatGetAsciiKwd
++/******************************************************************************/
++
++errlHndl_t hdatGetFullRecords( TARGETING::Target * i_target,uint32_t &o_kwdSize,
++           char* &o_kwd,vpdType i_vpdtype,const IpVpdFacade::recordInfo i_fetchVpd[],
++           uint32_t i_num, size_t theSize[])
++{
++    HDAT_ENTER();
++    errlHndl_t l_err = NULL;
++
++    switch (i_vpdtype)
++    {
++        case PROC:
++             l_err = hdatGetMvpdFullRecord(i_target,o_kwdSize,o_kwd,
++                                            i_fetchVpd,i_num,theSize);
++             HDAT_DBG("got back kwd size=%x",o_kwdSize);
++             break;
++        case BP:
++             l_err = hdatGetPvpdFullRecord(i_target,o_kwdSize,o_kwd,
++                                            i_fetchVpd,i_num,theSize);
++             HDAT_DBG("got back kwd size=%x",o_kwdSize);
++             break;
++        default:
++             HDAT_ERR("No appropriate vpd function to call.");
++             break;
++    }
++    HDAT_EXIT();
++    return l_err;
++}//end hdatGetAsciiKwd
++
++/******************************************************************************/
+ //hdatGetAsciiKwdForPvpd
+ /******************************************************************************/
+ errlHndl_t hdatGetAsciiKwdForPvpd(TARGETING::Target * i_target,
+@@ -648,6 +681,153 @@ errlHndl_t hdatGetAsciiKwdForPvpd(TARGETING::Target * i_target,
+ 
+ }
+ 
++
++
++/******************************************************************************/
++//hdatGetPvpdFullRecord
++/******************************************************************************/
++errlHndl_t hdatGetPvpdFullRecord(TARGETING::Target * i_target,
++           uint32_t &o_kwdSize,char* &o_kwd,
++           const IpVpdFacade::recordInfo i_fetchVpd[], size_t i_num, size_t theSize[])
++{
++
++    errlHndl_t l_err = NULL;
++    uint64_t fails = 0x0;
++    VPD::vpdRecord theRecord = 0x0;
++
++
++    o_kwd = NULL;
++    o_kwdSize = 0;
++    memset (theSize,0, sizeof(theSize));
++
++    do
++    {
++        assert(i_target != NULL , "Input target to collect the VPD is NULL");
++        uint8_t *theData = NULL;
++
++        const uint32_t numRecs = i_num;
++
++        for( uint32_t curRec = 0; curRec < numRecs ; curRec++ )
++        {
++            theRecord = i_fetchVpd[curRec].record;
++
++            l_err = deviceRead( i_target,
++                              NULL,
++                              theSize[curRec],
++                              DEVICE_PVPD_ADDRESS( theRecord,
++                                                   IPVPD::FULL_RECORD ) );
++            if( l_err )
++            {
++                fails++;
++                HDAT_DBG("hdatGetPvpdFullRecord::failure reading record size "
++                         "rec: 0x%04x", theRecord );
++                /*@
++                 * @errortype
++                 * @moduleid         HDAT::MOD_UTIL_PVPD_FULL_READ_FUNC
++                 * @reasoncode       HDAT::RC_PVPD_FAIL
++                 * @userdata1        pvpd record
++                 * @devdesc          PVPD read fail
++                 * @custdesc         Firmware encountered an internal error
++                 */
++                hdatBldErrLog(l_err,
++                    MOD_UTIL_PVPD_FULL_READ_FUNC,
++                    RC_PVPD_FAIL,
++                    theRecord,0,0,0,
++                    ERRORLOG::ERRL_SEV_INFORMATIONAL,
++                    HDAT_VERSION1,
++                    true);
++
++                continue;
++            }
++            HDAT_DBG("fetching record size PVPD, size initialised=%x ",theSize[curRec]);
++            o_kwdSize += theSize[curRec];
++        }
++
++        HDAT_DBG("hdatGetPvpdFullRecord:: allocating total Records size %d",
++                  o_kwdSize);
++        uint8_t l_startTag = HDAT_VPD_RECORD_START_TAG ;
++        uint8_t l_endTag = HDAT_VPD_RECORD_END_TAG ;
++        uint32_t l_RecTagSize = 2 * sizeof(uint8_t);  // Size of Tags for each record
++        uint32_t l_wholeTagSize = l_RecTagSize * numRecs;  // Size of tags for all records
++        o_kwd = new char[o_kwdSize + l_wholeTagSize ];
++
++        uint32_t loc = 0;
++        for( uint32_t curRec = 0; curRec < numRecs; curRec++ )
++        {
++            theRecord = i_fetchVpd[curRec].record;
++
++            //this condition is , if in the top loop there is a fail then
++            //theSize[curRec] will be 0.
++            if( theSize[curRec] == 0)
++            {
++                continue;
++            }
++            theData = new uint8_t [theSize[curRec]];
++
++            HDAT_DBG("hdatGetPvpdFullRecord: reading %dth record of size %d",
++                      curRec,theSize[curRec]);
++
++            l_err = deviceRead( i_target,
++                              theData,
++                              theSize[curRec],
++                              DEVICE_PVPD_ADDRESS( theRecord,
++                                                   IPVPD::FULL_RECORD) );
++
++
++            if ( l_err )
++            {
++                fails++;
++                HDAT_DBG("hdatGetPvpdFullRecord: Failure on Record: "
++                "0x%04x, of size: 0x%04x - test %d",
++                theRecord,theSize[curRec],curRec);
++                /*@
++                 * @errortype
++                 * @moduleid         HDAT::MOD_UTIL_PVPD_FULL_READ_FUNC
++                 * @reasoncode       HDAT::RC_PVPD_READ_FAIL
++                 * @userdata1        pvpd record
++                 * @devdesc          PVPD read fail
++                 * @custdesc         Firmware encountered an internal error
++                 */
++                hdatBldErrLog(l_err,
++                    MOD_UTIL_PVPD_FULL_READ_FUNC,
++                    RC_PVPD_READ_FAIL,
++                    theRecord,0,0,0,
++                    ERRORLOG::ERRL_SEV_INFORMATIONAL,
++                    HDAT_VERSION1,
++                    true);
++
++                if ( NULL != theData )
++                {
++                    delete[]  theData;
++                    theData = NULL;
++                }
++                continue;
++            }
++            if ( NULL != theData )
++            {
++                memcpy(reinterpret_cast<void *>(o_kwd + loc), &l_startTag, sizeof(uint8_t));
++                loc += sizeof(uint8_t);
++                memcpy(reinterpret_cast<void *>(o_kwd + loc),theData,
++                       theSize[curRec]);
++                loc += theSize[curRec];
++                memcpy(reinterpret_cast<void *>(o_kwd + loc), &l_endTag, sizeof(uint8_t));
++                loc += sizeof(uint8_t);
++
++                o_kwdSize += l_RecTagSize ; // Add each rec's tag size as well to final size
++                delete[] theData;
++                theData = NULL;
++                HDAT_DBG("hdatGetPvpdFullRecord: copied to main array %d kwd",
++                          curRec);
++            }
++        }
++    }while(0);
++
++    HDAT_DBG("hdatGetPvpdFullRecord: returning keyword size %d and data %s",
++              o_kwdSize,o_kwd);
++    return l_err;
++
++}
++
+ /******************************************************************************/
+ // hdatGetAsciiKwdForMvpd
+ /******************************************************************************/
+@@ -785,6 +965,145 @@ errlHndl_t hdatGetAsciiKwdForMvpd(TARGETING::Target * i_target,
+ }//end hdatGetAsciiKwdForMvpd
+ 
+ 
++
++
++/******************************************************************************/
++// hdatGetMvpdFullRecord
++/******************************************************************************/
++
++errlHndl_t hdatGetMvpdFullRecord(TARGETING::Target * i_target,
++           uint32_t &o_kwdSize,char* &o_kwd,
++           const IpVpdFacade::recordInfo i_fetchVpd[], uint32_t i_num,size_t theSize[])
++{
++    HDAT_ENTER();
++    errlHndl_t err = NULL;
++    uint64_t fails = 0x0;
++    uint64_t theRecord = 0x0;
++
++    o_kwd = NULL;
++    o_kwdSize = 0;
++
++
++    do
++    {
++        if(i_target == NULL)
++        {
++            HDAT_ERR("no functional Targets found");
++            break;
++        }
++
++        uint8_t *theData = NULL;
++
++
++        for( uint32_t curRec = 0; curRec < i_num; curRec++ )
++        {
++            theRecord = (uint64_t)i_fetchVpd[curRec].record;
++
++            HDAT_DBG("fetching proc Record size MVPD, size initialised=%x",
++                      theSize[curRec]);
++            err = deviceRead( i_target,
++                              NULL,
++                              theSize[curRec],
++                              DEVICE_MVPD_ADDRESS( theRecord,
++                                                   MVPD::FULL_RECORD ) );
++            HDAT_DBG("fetched proc Record size MVPD, size=%x",theSize[curRec]);
++
++            if( err )
++            {
++                fails++;
++                HDAT_DBG("failure reading Record size "
++                         "rec: 0x%04x",theRecord);
++                /*@
++                 * @errortype
++                 * @moduleid         HDAT::MOD_UTIL_MVPD
++                 * @reasoncode       HDAT::RC_DEV_READ_FAIL
++                 * @devdesc          Device read failed
++                 * @custdesc         Firmware encountered an internal error
++                 */
++                hdatBldErrLog(err,
++                    MOD_UTIL_MVPD,
++                    RC_DEV_READ_FAIL,
++                    theRecord,0,0,0,
++                    ERRORLOG::ERRL_SEV_INFORMATIONAL,
++                    HDAT_VERSION1,
++                    true);
++                continue;
++            }
++            o_kwdSize += theSize[curRec];
++        }
++
++        HDAT_DBG("allocating total Records size %d",
++                  o_kwdSize);
++
++        uint8_t l_startTag = 0x84;
++        uint8_t l_endTag = 0x78;
++        uint32_t l_RecTagSize = 2 * sizeof(uint8_t);
++        uint32_t l_wholeTagSize = l_RecTagSize * i_num;
++        o_kwd = new char[o_kwdSize + l_wholeTagSize ];
++
++        uint32_t loc = 0;
++        for( uint32_t curRec = 0; curRec < i_num; curRec++ )
++        {
++            theRecord = (uint64_t)i_fetchVpd[curRec].record;
++
++            theData = new uint8_t [theSize[curRec]];
++
++            HDAT_DBG("reading %dth Record of size %d",
++                      curRec,theSize[curRec]);
++
++            err = deviceRead( i_target,
++                              theData,
++                              theSize[curRec],
++                              DEVICE_MVPD_ADDRESS( theRecord,
++                                                   MVPD::FULL_RECORD ) );
++
++            HDAT_DBG("read PROC data %s",theData);
++
++            if ( err )
++            {
++                fails++;
++                HDAT_DBG("hdatGetMvpdFullRecord: Failure on Record: "
++                "0x%04x,  of size: 0x%04x - test %d",
++                theRecord,theSize,curRec);
++
++                delete err;
++
++                if ( NULL != theData )
++                {
++                   // free( theData );
++                    delete[] theData;
++                    theData = NULL;
++                }
++                continue;
++            }
++            if ( NULL != theData )
++            {
++                memcpy(reinterpret_cast<void *>(o_kwd + loc), &l_startTag, sizeof(uint8_t));
++                loc += sizeof(uint8_t);
++                memcpy(reinterpret_cast<void *>(o_kwd + loc),theData,
++                       theSize[curRec]);
++                loc += theSize[curRec];
++                memcpy(reinterpret_cast<void *>(o_kwd + loc), &l_endTag, sizeof(uint8_t));
++                loc += sizeof(uint8_t);
++
++                o_kwdSize += l_RecTagSize ; // Add each rec's tag size as well to final size
++
++                delete[] theData;
++                theData = NULL;
++                HDAT_DBG("copied to main array %d kwd",
++                          curRec);
++            }
++        }
++
++    }while(0);
++
++    HDAT_DBG("returning keyword size %d and data %s",
++              o_kwdSize,o_kwd);
++
++    HDAT_EXIT();
++    return err;
++}//end hdatGetMvpdFullRecord
++
+ /******************************************************************************/
+ // hdatGetAsciiKwdForCvpd
+ /******************************************************************************/
+diff --git a/src/usr/hdat/hdatutil.H b/src/usr/hdat/hdatutil.H
+index 6ded4f4..f1ec66f 100755
+--- a/src/usr/hdat/hdatutil.H
++++ b/src/usr/hdat/hdatutil.H
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2015,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2015,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -52,6 +52,13 @@
+ #include<vpd/spdenums.H>
+ #include <devicefw/driverif.H>
+ #include <targeting/common/predicates/predicatectm.H>
++#include <../vpd/mvpd.H>
++#include <../vpd/ipvpd.H>
++#include <../vpd/pvpd.H>
++using namespace MVPD;
++using namespace PVPD;
++using namespace IPVPD;
++
+ 
+ /*----------------------------------------------------------------------------*/
+ /* Constants                                                                  */
+@@ -251,6 +258,22 @@ errlHndl_t hdatGetAsciiKwdForMvpd(
+                        uint32_t i_num,size_t theSize[]);
+ 
+ /**
++ * @brief  Get the Full records of passed in vpd type
++ *
++ * @param[in] i_target input target pointer
++ * @param[out]o_kwdSize: keyword size
++ * @param[out]o_kwd: key word array
++ * @param[in] i_fetchVpd: relevant structure to be read to fetch the VPD
++ * @param[in] i_num: number of elements in the structure
++ *
++ * @return errlHndl_t NULL on success
++ *
++ */
++errlHndl_t hdatGetFullRecords( TARGETING::Target * i_target,uint32_t &o_kwdSize,
++           char* &o_kwd,vpdType i_vpdtype,const IpVpdFacade::recordInfo i_fetchVpd[],
++                      uint32_t i_num, size_t theSize[]);
++
++/**
+  * @brief  Get the ascii keyword for backplane
+  *
+  * @param[out]o_kwdSize: keyword size
+@@ -267,6 +290,48 @@ errlHndl_t hdatGetAsciiKwdForPvpd(
+                        char* &o_kwd,
+                        struct vpdData i_fetchVpd[],
+                        size_t i_num,size_t theSize[]);
++
++
++/**
++ * @brief  Get the Full MVPD records post adding start/end tag.
++ *         We need to add the tag back, since HB is stripping them off before
++ *         storing the vpd records in pnor cache. 
++ *
++ * @param[in] i_target input target pointer
++ * @param[out]o_kwdSize: keyword size
++ * @param[out]o_kwd: key word array
++ * @param[in] i_fetchVpd: relevant structure to be read to fetch the VPD
++ * @param[in] i_num: number of elements in the structure
++ *
++ * @return errlHndl_t NULL on success
++ *
++ */
++errlHndl_t hdatGetMvpdFullRecord(
++                       TARGETING::Target * i_target,
++                       uint32_t &o_kwdSize,
++                       char* &o_kwd,
++                       const IpVpdFacade::recordInfo i_fetchVpd[],
++                       uint32_t i_num,size_t theSize[]);
++
++/**
++ * @brief  Get the Full PVPD records post adding start/end tag.
++ *         We need to add the tag back, since HB is stripping them off before
++ *         storing the vpd records in pnor cache. 
++ * @param[out]o_kwdSize: keyword size
++ * @param[out]o_kwd: key word array
++ * @param[in] i_fetchVpd: relevant structure to be read to fetch the VPD
++ * @param[in] i_num: number of elements in the structure
++ *
++ * @return errlHndl_t NULL on success
++ *
++ */
++errlHndl_t hdatGetPvpdFullRecord(
++                       TARGETING::Target * i_target,
++                       uint32_t &o_kwdSize,
++                       char* &o_kwd,
++                       const IpVpdFacade::recordInfo i_fetchVpd[],
++                       size_t i_num,size_t theSize[]);
++
+ /**
+  * @brief  Get the ascii keyword for membuf
+  *
+diff --git a/src/usr/hdat/hdatvpd.C b/src/usr/hdat/hdatvpd.C
+index cc453f1..a079969 100755
+--- a/src/usr/hdat/hdatvpd.C
++++ b/src/usr/hdat/hdatvpd.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -167,6 +167,101 @@ iv_kwdSize(0), iv_kwd(NULL)
+ }
+ 
+ 
++
++/** @brief See the prologue in hdatvpd.H
++ */
++HdatVpd::HdatVpd(errlHndl_t &o_errlHndl,
++                 uint32_t i_resourceId,
++                 TARGETING::Target * i_target,
++                 const char *i_eyeCatcher,
++                 uint32_t i_index,
++                 vpdType i_vpdType,
++                 const IpVpdFacade::recordInfo i_fetchVpd[],
++                 uint32_t i_num)
++: HdatHdif(o_errlHndl, i_eyeCatcher, HDAT_VPD_LAST,i_index,HDAT_NO_CHILD,
++           HDAT_VPD_VERSION),
++iv_kwdSize(0), iv_kwd(NULL)
++{
++    HDAT_ENTER();
++    o_errlHndl = NULL;
++    uint32_t l_slcaIdx = 0;
++    TARGETING::Target * l_target=i_target;
++    i_target->tryGetAttr<TARGETING::ATTR_SLCA_INDEX>(l_slcaIdx);
++
++    //overriding target for BP  vpd
++    if ( FRU_SV == (i_resourceId >> 8 ) )
++    {
++        TARGETING::TargetHandleList l_targList;
++        PredicateCTM predNode(TARGETING::CLASS_ENC, TARGETING::TYPE_NODE);
++        PredicateHwas predFunctional;
++        predFunctional.functional(true);
++        PredicatePostfixExpr nodeCheckExpr;
++        nodeCheckExpr.push(&predNode).push(&predFunctional).And();
++
++        targetService().getAssociated(l_targList, i_target,
++                TargetService::CHILD, TargetService::IMMEDIATE,
++                &nodeCheckExpr);
++        l_target = l_targList[0];
++    }
++
++    //@TODO:RTC 149382(Method to get VPD collected status for Targets)
++    GARD_FunctionalState l_functional = GARD_Functional;
++    GARD_UsedState l_used = GARD_Used;
++
++    if (GARD_Functional == l_functional ||
++        GARD_PartialFunctional == l_functional)
++    {
++        iv_status.hdatFlags =  HDAT_VPD_FRU_FUNCTIONAL;
++    }
++    if (GARD_Used == l_used)
++    {
++        iv_status.hdatFlags |= HDAT_VPD_REDUNDANT_FRU_USED;
++    }
++
++    iv_fru.hdatResourceId = i_resourceId;
++    size_t theSize[i_num];
++    //get the SLCA index and the keyword for the RID
++    o_errlHndl = hdatGetFullRecords(l_target,iv_kwdSize,iv_kwd,i_vpdType,
++                                 i_fetchVpd,i_num,theSize);
++
++    HDAT_DBG("hdatGetAsciiKwd returned kwd size =%d",iv_kwdSize);
++
++    if(strcmp(i_eyeCatcher,"IO KID")==0)
++    {
++        using namespace TARGETING;
++        // Get Target Service, and the system target.
++        TARGETING::TargetService& l_targetService = targetService();
++        TARGETING::Target* l_sysTarget = NULL;
++        (void) l_targetService.getTopLevelTarget(l_sysTarget);
++
++        assert(l_sysTarget != NULL);
++
++        //fetching lx data
++        uint64_t l_LXvalue = l_sysTarget->getAttr<ATTR_ASCII_VPD_LX_KEYWORD>();
++        char *temp_kwd = new char [iv_kwdSize];
++        uint32_t temp_kwdSize = iv_kwdSize;
++        memcpy(temp_kwd, iv_kwd,iv_kwdSize);
++        delete[] iv_kwd;
++        iv_kwdSize +=sizeof(uint64_t);
++        iv_kwd = new char [iv_kwdSize];
++        memcpy(iv_kwd,temp_kwd,temp_kwdSize);
++        memcpy((void *)(iv_kwd+temp_kwdSize),&l_LXvalue,sizeof(uint64_t));
++        theSize[i_num-1] = sizeof(uint64_t);
++        delete[] temp_kwd;
++    }
++    if (NULL == o_errlHndl)
++    {
++        iv_fru.hdatSlcaIdx = l_slcaIdx;
++        this->addData(HDAT_VPD_FRU_ID, sizeof(hdatFruId_t));
++        this->addData(HDAT_VPD_OP_STATUS, sizeof(hdatFruOpStatus_t));
++        //Padding the size
++        this->addData(HDAT_VPD_KWD, iv_kwdSize+1);
++        this->align();
++    }
++    HDAT_EXIT();
++}
++
++
+ /** @brief See the prologue in hdatvpd.H
+  */
+ HdatVpd::~HdatVpd()
+diff --git a/src/usr/hdat/hdatvpd.H b/src/usr/hdat/hdatvpd.H
+index 5c12dda..9b093ab 100755
+--- a/src/usr/hdat/hdatvpd.H
++++ b/src/usr/hdat/hdatvpd.H
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2016                             */
++/* Contributors Listed Below - COPYRIGHT 2016,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -46,6 +46,13 @@
+ #include <errl/errlentry.H>
+ #include <vpd/vpd_if.H>
+ //#include "hdatutil.H"
++#include <../vpd/mvpd.H>
++#include <../vpd/ipvpd.H>
++#include <../vpd/pvpd.H>
++using namespace MVPD;
++using namespace PVPD;
++using namespace IPVPD;
++
+ 
+ namespace HDAT
+ {
+@@ -194,8 +201,45 @@ public:
+           vpdType i_vpdType,
+           struct vpdData i_fetchVpd[],
+           uint32_t i_num, const HdatKeywordInfo i_pvpdKeywords[]);
++  /**
++   * @brief Construct an HdatVpd object.
++   *
++   *       This is the constructor for the HdatVpd object
++   *
++   *       If you are constructing this object on the heap by using new, then
++   *       you must check the pointer returned from new to see if it is null.
++   *       If it is null, new failed to allocate storage and the constructor
++   *       was not called.  If it is not null, then you must check o_errlHndl
++   *       to see if the constructor ran successfully.  If o_errlHndl indicates
++   *       an error was reported by the constructor, new has already allocated
++   *       heap storage and the object must be deleted in order to free the
++   *       heap storage.
++   *
++   * @pre None
++   * @param o_errlHndl output error handle
++   * @param i_resourceId input resource id
++   * @param i_target input Target
++   * @param i_eyeCatcher input the eyecatcher string
++   * @param i_index input object instance
++   * @param i_vpdType input the vpd type to be added
++   * @param i_fetchVpd input the record structure like mVpd or pVpd etc
++   * @param i_num input the number of elements in the i_fetchVpd structure
++   * @param i_Keywords string array
++   *
++   * @post An HdatVpd object has been constructed.  Heap storage has been
++   *       allocated.
++   *
++   */
+ 
+ 
++  HdatVpd(errlHndl_t &o_errlHndl,
++          uint32_t i_resourceId,
++          TARGETING::Target * i_target,
++          const char *i_eyeCatcher,
++          uint32_t i_index,
++          vpdType i_vpdType,
++          const IpVpdFacade::recordInfo i_fetchVpd[],
++          uint32_t i_num);
+ 
+   /**
+    * @brief HdatVpd object destructor
+diff --git a/src/usr/hdat/makefile b/src/usr/hdat/makefile
+index 456664f..a2d95b1 100644
+--- a/src/usr/hdat/makefile
++++ b/src/usr/hdat/makefile
+@@ -5,7 +5,7 @@
+ #
+ # OpenPOWER HostBoot Project
+ #
+-# Contributors Listed Below - COPYRIGHT 2015,2016
++# Contributors Listed Below - COPYRIGHT 2015,2017
+ # [+] International Business Machines Corp.
+ #
+ #
+@@ -26,6 +26,8 @@
+ ROOTPATH = ../../..
+ MODULE = hdat
+ 
++EXTRAINCDIR += ../vpd
++EXTRAINCDIR += ../../include/usr/vpd
+ EXTRAINCDIR +=
+ 
+ OBJS += hdatutil.o
+diff --git a/src/usr/vpd/cvpd.H b/src/usr/vpd/cvpd.H
+index f54b38a..a2fd580 100644
+--- a/src/usr/vpd/cvpd.H
++++ b/src/usr/vpd/cvpd.H
+@@ -168,7 +168,6 @@ namespace CVPD
+         { pd6, "#6" },
+         { pd8, "#8" },
+         { pdY, "#Y" },
+-        { RT,  "RT" },
+ 
+         // -------------------------------------------------------------------
+         // DO NOT USE!!  This is for test purposes ONLY!
+diff --git a/src/usr/vpd/mvpd.H b/src/usr/vpd/mvpd.H
+index e17f5c9..610de3b 100644
+--- a/src/usr/vpd/mvpd.H
++++ b/src/usr/vpd/mvpd.H
+@@ -134,7 +134,6 @@ namespace MVPD
+         { L6, "L6" },
+         { L7, "L7" },
+         { L8, "L8" },
+-        { RT, "RT" },
+ 
+         // -------------------------------------------------------------------
+         // DO NOT USE!!  This is for test purposes ONLY!
+-- 
+1.8.2.2
+
