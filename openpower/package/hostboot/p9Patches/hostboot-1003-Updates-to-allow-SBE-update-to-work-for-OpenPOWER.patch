@@ -1,0 +1,56 @@
+From db81f3bb91ba32aca111d708fde1808904a007b3 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 3 Feb 2017 20:59:31 -0600
+Subject: [PATCH v1 1003/1003] Updates to allow SBE update to work for
+ OpenPOWER
+
+   - RINGOVD partition is optional, don't error out on it
+   - Make sure to set HB IPL PHASE when customizing
+
+Change-Id: Ia672617713aee9e35345c76aab0bba96bc999024
+---
+ src/usr/sbe/sbe_update.C | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/usr/sbe/sbe_update.C b/src/usr/sbe/sbe_update.C
+index 5281833..e5745fe 100644
+--- a/src/usr/sbe/sbe_update.C
++++ b/src/usr/sbe/sbe_update.C
+@@ -262,6 +262,11 @@ namespace SBE
+                  err = NULL;
+             }
+ 
++            //When customizing the SBE for HB the
++            //System IPL phase MUST be ENUM_ATTR_SYSTEM_IPL_PHASE_HB_IPL = 0x1
++            uint8_t orig_sysPhase = sys->getAttr<ATTR_SYSTEM_IPL_PHASE>();
++            sys->setAttr<ATTR_SYSTEM_IPL_PHASE>(
++                                fapi2::ENUM_ATTR_SYSTEM_IPL_PHASE_HB_IPL);
+ 
+             for(uint32_t i=0; i<procList.size(); i++)
+             {
+@@ -462,6 +467,9 @@ namespace SBE
+ 
+             } //end of Target for loop collecting each target's SBE State
+ 
++            //Restore default value
++            sys->setAttr<ATTR_SYSTEM_IPL_PHASE>(orig_sysPhase);
++
+             /**************************************************************/
+             /*  Perform System Operation                                  */
+             /**************************************************************/
+@@ -1070,9 +1078,11 @@ namespace SBE
+             l_err = PNOR::getSectionInfo(PNOR::RINGOVD, l_pnorRingOvd);
+             if(l_err)
+             {
++                delete l_err;
++                l_err = NULL;
+                 TRACFCOMP( g_trac_sbe,
+                            ERR_MRK"ringOvd():Error trying to read RINGOVD "
+-                           "from PNOR!");
++                           "from PNOR.  It is optional, continuing");
+                 io_ovdImgSize = 0;
+                 break;
+             }
+-- 
+1.8.2.2
+

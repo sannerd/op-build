@@ -4,8 +4,8 @@
 #
 ################################################################################
 
-ZAIUS_XML_VERSION ?= b877062971163638c8e4348be10dc9c5ebbe52ee
-ZAIUS_XML_SITE ?= $(call github,open-power,zaius-xml,$(ZAIUS_XML_VERSION))
+ZAIUS_XML_VERSION ?= 9f431a1a144a916df4e3c016153c3eb271fccf28 
+ZAIUS_XML_SITE ?= $(call github,a-barrera,zaius-xml-1,$(ZAIUS_XML_VERSION))
 
 ZAIUS_XML_LICENSE = Apache-2.0
 ZAIUS_XML_DEPENDENCIES = hostboot-install-images openpower-mrw-install-images common-p8-xml-install-images

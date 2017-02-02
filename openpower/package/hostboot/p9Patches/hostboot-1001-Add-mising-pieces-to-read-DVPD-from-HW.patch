@@ -1,0 +1,234 @@
+From 2b3bfe1f8dfc4dfbea78036a06a009a7cafb1b18 Mon Sep 17 00:00:00 2001
+From: Prachi Gupta <pragupta@us.ibm.com>
+Date: Wed, 1 Feb 2017 22:12:50 -0600
+Subject: [PATCH v1 1001/1003] Add mising pieces to read DVPD from HW
+
+- Added support for MCS target to access EEPROM device
+- Added EEPROM_VPD_PRIMARY_INFO attribute for MCS target
+- Fixup caching of DVPD in PNOR
+
+Change-Id: I9fb2de82b16eb017517f5addf361c4a90b3edf30
+---
+ src/usr/i2c/eepromdd.C                            |  6 +++++-
+ src/usr/targeting/common/Targets.pm               | 19 +++++++++++++++++++
+ src/usr/targeting/common/processMrw.pl            | 15 +++++++++++++++
+ src/usr/targeting/common/xmltohb/target_types.xml |  1 +
+ src/usr/vpd/dvpd.C                                | 20 ++++----------------
+ src/usr/vpd/pvpd.C                                |  3 +++
+ src/usr/vpd/vpd.C                                 | 14 +++++++++++---
+ 7 files changed, 58 insertions(+), 20 deletions(-)
+
+diff --git a/src/usr/i2c/eepromdd.C b/src/usr/i2c/eepromdd.C
+index 993a562..ff9d374 100755
+--- a/src/usr/i2c/eepromdd.C
++++ b/src/usr/i2c/eepromdd.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2011,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2011,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -103,6 +103,10 @@ DEVICE_REGISTER_ROUTE( DeviceFW::WILDCARD,
+                        TARGETING::TYPE_NODE,
+                        eepromPerformOp );
+ 
++DEVICE_REGISTER_ROUTE( DeviceFW::WILDCARD,
++                       DeviceFW::EEPROM,
++                       TARGETING::TYPE_MCS,
++                       eepromPerformOp );
+ // ------------------------------------------------------------------
+ // eepromPerformOp
+ // ------------------------------------------------------------------
+diff --git a/src/usr/targeting/common/Targets.pm b/src/usr/targeting/common/Targets.pm
+index 2d4250c..d8ee43b 100644
+--- a/src/usr/targeting/common/Targets.pm
++++ b/src/usr/targeting/common/Targets.pm
+@@ -1659,6 +1659,25 @@ sub copyAttribute
+     $self->log($dest_target, "Copy Attribute: $attribute=$value");
+ }
+ 
++## copy an attribute between targets
++sub copyAttributeFields
++{
++    my $self = shift;
++    my $source_target = shift;
++    my $dest_target = shift;
++    my $attribute = shift;
++
++    foreach my $f(sort keys
++        %{$self->{data}->{TARGETS}->{$source_target}->{ATTRIBUTES}->{$attribute}->{default}->{field}})
++    {
++            my $field_val = $self->getAttributeField($source_target,
++                $attribute, $f);
++            $self->setAttributeField($dest_target,$attribute,$f,
++                $field_val);
++            $self->log($dest_target, "Copy Attribute Field:$attribute($f)=$field_val");
++    }
++}
++
+ ## sets an attribute
+ sub setAttribute
+ {
+diff --git a/src/usr/targeting/common/processMrw.pl b/src/usr/targeting/common/processMrw.pl
+index a8665e4..3464ab6 100644
+--- a/src/usr/targeting/common/processMrw.pl
++++ b/src/usr/targeting/common/processMrw.pl
+@@ -708,6 +708,21 @@ sub processMcs
+     my $group        = shift;
+     my $proc         = shift;
+ 
++    #@FIXME RTC:168611 To decouple DVPD from PVPD
++    #parentTarget == MCBIST
++    #parent(MCBIST) = Proc
++    #parent(proc) = module
++    #parent(module) = socket
++    #parent(socket) = motherboard
++    #parent(motherboard) = node
++    my $node = $targetObj->getTargetParent( #node
++                    $targetObj->getTargetParent( #motherboard
++                        $targetObj->getTargetParent #socket
++                            ($targetObj->getTargetParent #module
++                                ($targetObj->getTargetParent($parentTarget)))));
++    my $name = "EEPROM_VPD_PRIMARY_INFO";
++    $targetObj->copyAttributeFields($node, $target, "EEPROM_VPD_PRIMARY_INFO");
++
+ #@TODO RTC:163874 -- maybe needed for centaur support
+ 
+ 
+diff --git a/src/usr/targeting/common/xmltohb/target_types.xml b/src/usr/targeting/common/xmltohb/target_types.xml
+index b60f2be..016081c 100755
+--- a/src/usr/targeting/common/xmltohb/target_types.xml
++++ b/src/usr/targeting/common/xmltohb/target_types.xml
+@@ -1408,6 +1408,7 @@
+     <attribute><id>HWAS_STATE_CHANGED_SUBSCRIPTION_MASK</id>
+         <default>0x00000003</default> <!-- GARD | MEMDIAG -->
+     </attribute>
++    <attribute><id>EEPROM_VPD_PRIMARY_INFO</id></attribute>
+     <attribute><id>IBSCOM_MCS_BASE_ADDR</id></attribute>
+     <attribute><id>EI_BUS_TX_MSBSWAP</id></attribute>
+     <attribute><id>SCRATCH_UINT8_1</id><default>5</default></attribute>
+diff --git a/src/usr/vpd/dvpd.C b/src/usr/vpd/dvpd.C
+index 8e89df7..4962d12 100644
+--- a/src/usr/vpd/dvpd.C
++++ b/src/usr/vpd/dvpd.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2013,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2013,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -45,9 +45,6 @@
+ #include "vpd.H"
+ #include "pvpd.H"
+ #include <initservice/initserviceif.H>
+-#ifdef CONFIG_PVPD_READ_FROM_PNOR
+-#include "pvpd.H"
+-#endif
+ 
+ // ----------------------------------------------
+ // Trace definitions
+@@ -252,18 +249,9 @@ errlHndl_t directMemoryPresenceDetect(DeviceFW::OperationType i_opType,
+ 
+     dvpd_present = DVPD::dvpdPresent( i_target );
+ #if defined(CONFIG_MEMVPD_READ_FROM_HW) && defined(CONFIG_MEMVPD_READ_FROM_PNOR)
+-    if( dvpd_present )
+-    {
+-        // Check if the VPD data in the PNOR matches the SEEPROM
+-        l_errl = VPD::ensureCacheIsInSync( i_target );
+-        if( l_errl )
+-        {
+-            TRACFCOMP(g_trac_vpd,ERR_MRK "nodePresenceDetect>"
+-                    " Error during ensureCacheIsInSync (DVPD)" );
+-            errlCommit( l_errl, FSI_COMP_ID );
+-        }
+-    }
+-    else
++    //skipping cache sync when dvpd is present as it will be taken care by node
++    //vpd
++    if( !dvpd_present )
+     {
+         TRACFCOMP(g_trac_vpd,
+                   ERR_MRK "directMemoryPresenceDetect> failed presence detect");
+diff --git a/src/usr/vpd/pvpd.C b/src/usr/vpd/pvpd.C
+index 687f7fe..c97837b 100644
+--- a/src/usr/vpd/pvpd.C
++++ b/src/usr/vpd/pvpd.C
+@@ -372,6 +372,9 @@ void PvpdFacade::getRecordLists(
+ #ifdef CONFIG_MEMVPD_READ_FROM_PNOR
+     o_altVpdRecords = Singleton<CvpdFacade>::instance().iv_vpdRecords;
+     o_altRecSize = Singleton<CvpdFacade>::instance().iv_recSize;
++#elif CONFIG_MEMVPD_READ_FROM_HW
++    o_altVpdRecords = Singleton<DvpdFacade>::instance().iv_vpdRecords;
++    o_altRecSize = Singleton<DvpdFacade>::instance().iv_recSize;
+ #else
+     o_altVpdRecords = NULL;
+     o_altRecSize = 0;
+diff --git a/src/usr/vpd/vpd.C b/src/usr/vpd/vpd.C
+index ebda849..d8c3ae5 100755
+--- a/src/usr/vpd/vpd.C
++++ b/src/usr/vpd/vpd.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2013,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2013,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -37,6 +37,7 @@
+ #include "pvpd.H"
+ #include "spd.H"
+ #include "ipvpd.H"
++#include "dvpd.H"
+ #include <map>
+ 
+ // ----------------------------------------------
+@@ -579,6 +580,12 @@ errlHndl_t getPnAndSnRecordAndKeywords( TARGETING::Target * i_target,
+             io_keywordSN = PVPD::SN;
+ #endif
+         }
++        else if( i_type == TARGETING::TYPE_MCS )
++        {
++            io_record    = DVPD::VINI;
++            io_keywordPN = DVPD::PN;
++            io_keywordSN = DVPD::SN;
++        }
+         else
+         {
+             TRACFCOMP(g_trac_vpd,ERR_MRK"VPD::getPnAndSnRecordAndKeywords() Unexpected target type, huid=0x%X",TARGETING::get_huid(i_target));
+@@ -629,6 +636,7 @@ errlHndl_t ensureCacheIsInSync ( TARGETING::Target * i_target )
+     {
+         l_ipvpd = &(Singleton<PvpdFacade>::instance());
+     }
++
+     do
+     {
+         // Get the correct Part and serial numbers
+@@ -648,7 +656,7 @@ errlHndl_t ensureCacheIsInSync ( TARGETING::Target * i_target )
+         bool l_matchPN = false;
+         if( ( l_type == TARGETING::TYPE_PROC   ) ||
+             ( l_type == TARGETING::TYPE_NODE   ) ||
+-            ( l_type == TARGETING::TYPE_MEMBUF ) )
++            ( l_type == TARGETING::TYPE_MEMBUF ))
+         {
+             l_err = l_ipvpd->cmpPnorToSeeprom( i_target,
+                                                l_record,
+@@ -705,7 +713,7 @@ errlHndl_t ensureCacheIsInSync ( TARGETING::Target * i_target )
+             // Load the PNOR data from the SEEPROM
+             if( ( l_type == TARGETING::TYPE_PROC ) ||
+                 ( l_type == TARGETING::TYPE_NODE ) ||
+-                ( l_type == TARGETING::TYPE_MEMBUF ) )
++                ( l_type == TARGETING::TYPE_MEMBUF ))
+             {
+                 l_err = l_ipvpd->loadPnor( i_target );
+             }
+-- 
+1.8.2.2
+
