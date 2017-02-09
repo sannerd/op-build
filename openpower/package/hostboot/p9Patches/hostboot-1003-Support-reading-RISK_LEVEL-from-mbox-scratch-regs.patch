@@ -1,0 +1,33 @@
+From 19852e504e7869f46f393f7aa3605e2933fd5508 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Thu, 16 Feb 2017 15:10:51 -0600
+Subject: [PATCH v1 1003/1003] Support reading RISK_LEVEL from mbox scratch
+ regs
+
+Change-Id: I350c5aa31322914d573caf3df47da2e459da6aa3
+---
+ src/usr/targeting/targetservicestart.C | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/usr/targeting/targetservicestart.C b/src/usr/targeting/targetservicestart.C
+index a80d2a9..575d22e 100755
+--- a/src/usr/targeting/targetservicestart.C
++++ b/src/usr/targeting/targetservicestart.C
+@@ -288,6 +288,14 @@ static void initializeAttributes(TargetService& i_targetService,
+             {
+                 l_pTopLevel->setAttr<ATTR_ISTEP_MODE>(1);
+             }
++
++            //Set the RISK_LEVEL ATTR based off of master Scratch regs
++            INITSERVICE::SPLESS::MboxScratch5_t l_scratch5;
++            l_scratch5.data32 = i_masterScratch[INITSERVICE::SPLESS::SCRATCH_5];
++            if(l_scratch5.riskLevel)
++            {
++                l_pTopLevel->setAttr<ATTR_RISK_LEVEL>(1);
++            }
+         }
+ 
+         if(i_isMpipl)
+-- 
+1.8.2.2
+

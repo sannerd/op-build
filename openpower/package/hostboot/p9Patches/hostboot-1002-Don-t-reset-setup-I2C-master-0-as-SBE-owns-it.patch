@@ -1,0 +1,36 @@
+From 76877b2f7032925188fa6397eef810cd65e99089 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Thu, 16 Feb 2017 12:28:22 -0600
+Subject: [PATCH v1 1002/1003] Don't reset/setup I2C master 0 as SBE owns it
+
+  Hostboot shouldn't be messing with I2C master 0 as the
+  SBE is actively using it.  Reseting or setting it up
+  will cause SBE I2C errors the next time it accesses it
+
+Change-Id: I12b16d158a18b09dadff1de4534f3ea986a532a6
+---
+ src/usr/i2c/i2c.C | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/usr/i2c/i2c.C b/src/usr/i2c/i2c.C
+index d8cde87..ac04a9f 100755
+--- a/src/usr/i2c/i2c.C
++++ b/src/usr/i2c/i2c.C
+@@ -3229,6 +3229,14 @@ errlHndl_t i2cProcessActiveMasters ( i2cProcessType      i_processType,
+                     continue;
+                 }
+ 
++                // Never touch engine 0 for Host -- the SBE owns
++                // it
++                if ( ( engine == 0 ) &&
++                     (io_args.switches.useHostI2C == 1) )
++                {
++                    continue;
++                }
++
+                 // Look for any device on this engine based on speed_array
+                 bool skip = true;
+                 for ( size_t j = 0; j < I2C_BUS_ATTR_MAX_PORT; j++ )
+-- 
+1.8.2.2
+
