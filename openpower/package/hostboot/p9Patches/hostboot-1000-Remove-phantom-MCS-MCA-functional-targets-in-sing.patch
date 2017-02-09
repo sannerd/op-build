@@ -1,0 +1,44 @@
+From b8729a3e8f732ecc7db6fc1125c3481eae068bfc Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Wed, 15 Feb 2017 08:35:56 -0600
+Subject: [PATCH v1 1000/1001] Remove phantom MCS/MCA functional targets in
+ single socket
+
+  - Current DVPD design relies on presence detect on MCS
+    However this has the side effect of marking them present
+    and functional.  This commit is a hack to fix that
+    till the DVPD design can be addressed
+
+Change-Id: I1290423934f1f39021d80bd3fe98d6ad66217734
+---
+ src/usr/hwas/hwasPlat.C | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/src/usr/hwas/hwasPlat.C b/src/usr/hwas/hwasPlat.C
+index 22da95b..1abf7f1 100644
+--- a/src/usr/hwas/hwasPlat.C
++++ b/src/usr/hwas/hwasPlat.C
+@@ -518,6 +518,20 @@ errlHndl_t platPresenceDetect(TargetHandleList &io_targets)
+             present = false;
+         }
+ 
++        // if TYPE_MCS
++        // Need to handle "special" -- DVPD cache relies on this
++        // being called for pnor cache management, however this causes
++        // spurious MCS's to be marked present/functional when they are
++        // trully tied to processor PG.  So remove from list since
++        // the DVPD present detect hook has been called
++        // TODO RTC 169572 -- Fix correctly by reworking DVPD
++        if (pTarget->getAttr<ATTR_TYPE>() == TYPE_MCS)
++        {
++            // erase this target, and 'increment' to next
++            pTarget_it = io_targets.erase(pTarget_it);
++            continue;
++        }
++
+         if (present == true)
+         {
+             HWAS_DBG( "pTarget %.8X - detected present",
+-- 
+1.8.2.2
+
