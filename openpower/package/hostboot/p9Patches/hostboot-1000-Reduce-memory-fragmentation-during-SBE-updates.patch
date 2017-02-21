@@ -1,0 +1,131 @@
+From b549191bc0279fb13fe4fca70153739e46a0872b Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Thu, 23 Feb 2017 08:41:00 -0600
+Subject: [PATCH v1 1000/1002] Reduce memory fragmentation during SBE updates
+
+  - Original code was repeatedly allocating/freeing 256K chunks of
+    heap memory
+  - Other tasks in the background fragmented the allocations and
+    could lead to out of memory conditions on large core number
+    parts
+  - Fix is to allocation one large chunk up front and use that for
+    all operations
+
+Change-Id: Ie6df7eb9ebce526d87480425e842f8d1be8d78d4
+---
+ src/include/usr/vmmconst.h |  4 ++--
+ src/usr/sbe/sbe_update.C   | 10 +++-------
+ src/usr/sbe/sbe_update.H   | 12 +++++++++++-
+ 3 files changed, 16 insertions(+), 10 deletions(-)
+
+diff --git a/src/include/usr/vmmconst.h b/src/include/usr/vmmconst.h
+index 538cb2a..17d8815 100644
+--- a/src/include/usr/vmmconst.h
++++ b/src/include/usr/vmmconst.h
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2011,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2011,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -100,7 +100,7 @@
+ 
+ /** SBE Update process is at 3GB, uses 512KB */
+ #define VMM_VADDR_SBE_UPDATE (3 * GIGABYTE)
+-#define VMM_SBE_UPDATE_SIZE (512 * KILOBYTE)
++#define VMM_SBE_UPDATE_SIZE (900 * KILOBYTE)
+ #define VMM_VADDR_SBE_UPDATE_END (VMM_VADDR_SBE_UPDATE + VMM_SBE_UPDATE_SIZE)
+ 
+ /** Attribute Resource Provider */
+diff --git a/src/usr/sbe/sbe_update.C b/src/usr/sbe/sbe_update.C
+index 0c97dd2..87703fd 100644
+--- a/src/usr/sbe/sbe_update.C
++++ b/src/usr/sbe/sbe_update.C
+@@ -910,7 +910,7 @@ namespace SBE
+ 
+                 // Call p9_xip_delete_section to delete existing HBBL image
+                 // from SBE image
+-                void *l_imageBuf = malloc(io_image_size);
++                void *l_imageBuf =malloc(io_image_size);
+                 xip_rc = p9_xip_delete_section(
+                                  i_image,
+                                  l_imageBuf,
+@@ -1149,13 +1149,12 @@ namespace SBE
+                 procIOMask = coreMask;
+ 
+                 uint32_t l_ringSectionBufSize = MAX_SEEPROM_IMAGE_SIZE;
+-                void* l_ringSectionBuf = malloc(l_ringSectionBufSize);
+                 FAPI_INVOKE_HWP( err,
+                                  p9_xip_customize,
+                                  l_fapiTarg,
+                                  io_imgPtr, //image in/out
+                                  tmpImgSize,
+-                                 l_ringSectionBuf,
++                                 (void*)RING_SEC_VADDR,
+                                  l_ringSectionBufSize,
+                                  SYSPHASE_HB_SBE,
+                                  MODEBUILD_IPL,
+@@ -1164,7 +1163,6 @@ namespace SBE
+                                  (void*)RING_BUF2_VADDR,
+                                  (uint32_t)MAX_RING_BUF_SIZE,
+                                  procIOMask ); // Bits(8:31) = EC00:EC23
+-                free(l_ringSectionBuf);
+ 
+                 // Check for no error and use of input cores
+                 if ( (NULL == err) && (procIOMask == coreMask))
+@@ -1986,7 +1984,7 @@ namespace SBE
+                 static_cast<uint32_t>(sbePnorImageSize + hbblCachelineSize);
+ 
+             // copy SBE image from PNOR to memory
+-            sbeHbblImgPtr = malloc(sbeHbblImgSize);
++            sbeHbblImgPtr = (void*)SBE_HBBL_IMG_VADDR;
+             memcpy ( sbeHbblImgPtr,
+                      sbePnorPtr,
+                      sbePnorImageSize);
+@@ -2128,8 +2126,6 @@ namespace SBE
+ 
+         }while(0);
+ 
+-        free(sbeHbblImgPtr);
+-
+         return err;
+ 
+     }
+diff --git a/src/usr/sbe/sbe_update.H b/src/usr/sbe/sbe_update.H
+index 7b86bd3..c228eed 100644
+--- a/src/usr/sbe/sbe_update.H
++++ b/src/usr/sbe/sbe_update.H
+@@ -135,16 +135,26 @@ namespace SBE
+     /******************************************/
+     /*  Enums                                 */
+     /******************************************/
++    // SBE VADDR Layout
++    // 000K - 256K  = Dest for Customized SBE image
++    //
++    // 256K - 316K  = Ring buf1
++    // 316K - 376K  = Ring buf2
++    // 376K - 632K  = Ring Section buf
++    // ---- ALT use 256K-632K for SBE ECC image
++    // 632K - 888K  = SBE + HBBL image
+     enum {
+         FIXED_SEEPROM_WORK_SPACE = 256 * 1024,
+         SBE_IMG_VADDR = VMM_VADDR_SBE_UPDATE,
+         RING_BUF1_VADDR = FIXED_SEEPROM_WORK_SPACE + SBE_IMG_VADDR,
+         RING_BUF2_VADDR = RING_BUF1_VADDR + MAX_RING_BUF_SIZE,
++        RING_SEC_VADDR  = RING_BUF2_VADDR + MAX_RING_BUF_SIZE,
+         //NOTE: recycling the same memory space for different
+         //steps in the process.
+-        SBE_ECC_IMG_VADDR = VMM_VADDR_SBE_UPDATE + (VMM_SBE_UPDATE_SIZE / 2),
++        SBE_ECC_IMG_VADDR = RING_BUF1_VADDR,
+         SBE_ECC_IMG_MAX_SIZE = (MAX_SEEPROM_IMAGE_SIZE * 9 / 8) +
+                                (3 * SBE_SEEPROM_ECC_PAD),
++        SBE_HBBL_IMG_VADDR = RING_SEC_VADDR + FIXED_SEEPROM_WORK_SPACE,
+     };
+ 
+     // Used for MVPD function
+-- 
+1.8.2.2
+
