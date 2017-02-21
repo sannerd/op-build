@@ -1,0 +1,619 @@
+From 071f8c1d2710e774aa8c08640d026c62801cf42a Mon Sep 17 00:00:00 2001
+From: Stephen Glancy <sglancy@us.ibm.com>
+Date: Tue, 21 Feb 2017 13:05:39 -0600
+Subject: [PATCH v1 1000/1004] Updates to run HW VREF cal by default
+
+This code runs the HW VREF calibrations (both WR and RD VREF)
+by default if it is supported by the HW.  Four new attributes are
+added to handle whether HW VREF cal should be run and with what overrides
+it needs to be run.
+
+Change-Id: I3ed63794e955ee8c94cffce0b98dba58886e4a9d
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/36803
+Tested-by: PPE CI <ppe-ci+hostboot@us.ibm.com>
+Reviewed-by: Brian R. Silver <bsilver@us.ibm.com>
+Reviewed-by: RYAN P. KING <rpking@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: ANDRE A. MARIN <aamarin@us.ibm.com>
+Reviewed-by: Louis Stermole <stermole@us.ibm.com>
+Reviewed-by: JACOB L. HARVEY <jlharvey@us.ibm.com>
+Reviewed-by: Matt K. Light <mklight@us.ibm.com>
+Reviewed-by: Daniel M. Crowell <dcrowell@us.ibm.com>
+Reviewed-by: Jennifer A. Stofer <stofer@us.ibm.com>
+---
+ .../p9/procedures/hwp/memory/lib/dimm/eff_dimm.C   |  47 ++++++++++
+ .../p9/procedures/hwp/memory/lib/dimm/eff_dimm.H   |  12 +++
+ .../memory/lib/mss_attribute_accessors_manual.H    |  62 +++++++++++++
+ .../p9/procedures/hwp/memory/lib/phy/ddr_phy.C     |   3 +
+ .../hwp/memory/lib/workarounds/dp16_workarounds.C  | 101 +++++++++++++++++++++
+ .../hwp/memory/lib/workarounds/dp16_workarounds.H  |  27 ++++++
+ .../hwp/memory/p9_mss_draminit_training.C          |   8 +-
+ .../p9/procedures/hwp/memory/p9_mss_eff_config.C   |  12 +--
+ .../chips/p9/procedures/hwp/perv/p9_getecid.C      |   4 +
+ .../xml/attribute_info/chip_ec_attributes.xml      |  34 +++++++
+ .../memory_workarounds_attributes.xml              |  24 +++++
+ .../fapi2/xml/attribute_info/hb_temp_defaults.xml  |   8 ++
+ .../targeting/common/xmltohb/attribute_types.xml   |  39 ++++++++
+ src/usr/targeting/common/xmltohb/target_types.xml  |  16 ++--
+ 14 files changed, 376 insertions(+), 21 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.C b/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.C
+index 39bf117..959e4ed 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.C
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.C
+@@ -4327,6 +4327,53 @@ fapi_try_exit:
+     return fapi2::current_err;
+ }
+ 
++///
++/// @brief Determines and sets the cal_step_enable values
++/// @return fapi2::FAPI2_RC_SUCCESS if okay
++///
++fapi2::ReturnCode eff_dimm::cal_step_enable()
++{
++    // Gets the MCS target to use
++    const auto& l_mcs = mss::find_target<TARGET_TYPE_MCS>(iv_dimm);
++
++    // These constexpr values are taken from the defiitions in ATTR_MSS_CAL_STEP_ENABLE
++    // RD/WR VREF correspond to 0x0400 and 0x0100 respectively.
++    constexpr uint64_t ONLY_1D = 0xFAC0;
++    constexpr uint64_t RD_VREF_WR_VREF_1D = 0xFFC0;
++    const uint16_t l_cal_step_value = (mss::chip_ec_feature_skip_hw_vref_cal(l_mcs) ? ONLY_1D : RD_VREF_WR_VREF_1D);
++
++    FAPI_DBG("%s %s running HW VREF cal. cal_step value: 0x%0x VREF", mss::c_str(l_mcs),
++             mss::chip_ec_feature_skip_hw_vref_cal(l_mcs) ? "not" : "", l_cal_step_value);
++
++    // Sets up the vector
++    std::vector<uint16_t> l_cal_step(PORTS_PER_MCS, l_cal_step_value);
++
++    // Sets the values
++    return FAPI_ATTR_SET(fapi2::ATTR_MSS_CAL_STEP_ENABLE, l_mcs, UINT16_VECTOR_TO_1D_ARRAY(l_cal_step, PORTS_PER_MCS));
++}
+ 
++///
++/// @brief Determines and sets the vref_enable_bit settings
++/// @return fapi2::FAPI2_RC_SUCCESS if okay
++///
++fapi2::ReturnCode eff_dimm::vref_enable_bit()
++{
++    // Gets the MCS target to use
++    const auto& l_mcs = mss::find_target<TARGET_TYPE_MCS>(iv_dimm);
++
++    // This enables which bits should be run for RD VREF, all 1's indicates that all bits should be run
++    constexpr uint64_t DISABLE = 0x0000;
++    constexpr uint64_t ENABLE = 0xFFFF;
++    const uint16_t l_vref_enable_value = (mss::chip_ec_feature_skip_hw_vref_cal(l_mcs) ? DISABLE : ENABLE);
++
++    FAPI_DBG("%s %s running HW VREF cal. VREF enable value: 0x%0x", mss::c_str(l_mcs),
++             mss::chip_ec_feature_skip_hw_vref_cal(l_mcs) ? "not" : "", l_vref_enable_value);
++
++    // Sets up the vector
++    std::vector<uint16_t> l_vref_enable(PORTS_PER_MCS, l_vref_enable_value);
++
++    // Sets the values
++    return FAPI_ATTR_SET(fapi2::ATTR_MSS_VREF_CAL_ENABLE, l_mcs, UINT16_VECTOR_TO_1D_ARRAY(l_vref_enable, PORTS_PER_MCS));
++}
+ 
+ }//mss
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.H b/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.H
+index 0b2abed..73bc39e 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/dimm/eff_dimm.H
+@@ -702,6 +702,18 @@ class eff_dimm
+         fapi2::ReturnCode dram_trtp();
+ 
+         ///
++        /// @brief Determines and sets the cal_step_enable values
++        /// @return fapi2::FAPI2_RC_SUCCESS if okay
++        ///
++        fapi2::ReturnCode cal_step_enable();
++
++        ///
++        /// @brief Determines and sets the vref_enable_bit settings
++        /// @return fapi2::FAPI2_RC_SUCCESS if okay
++        ///
++        fapi2::ReturnCode vref_enable_bit();
++
++        ///
+         /// @brief Sets the RTT_NOM value from SPD
+         /// @return fapi2::FAPI2_RC_SUCCESS if okay
+         /// @note used for MRS01
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H b/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H
+index 54b594b..8fd85c2 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H
+@@ -285,6 +285,37 @@ fapi_try_exit:
+ }
+ 
+ ///
++/// @brief ATTR_CHIP_EC_FEATURE_MSS_ENABLE_HW_VREF_CAL getter
++/// @tparam T the fapi2 target type of the target
++/// @param[in] const ref to the target
++/// @return bool true iff feature is enabled
++///
++template< fapi2::TargetType T >
++inline bool chip_ec_feature_skip_hw_vref_cal(const fapi2::Target<T>& i_target)
++{
++    const auto l_chip = mss::find_target<fapi2::TARGET_TYPE_PROC_CHIP>(i_target);
++    uint8_t l_chip_check = 0;
++    uint8_t l_skip_check = 0;
++    uint8_t is_sim = 0;
++
++    FAPI_TRY( FAPI_ATTR_GET(fapi2::ATTR_CHIP_EC_FEATURE_MSS_CHECK_DISABLE_HW_VREF_CAL, l_chip, l_chip_check) );
++    FAPI_TRY( FAPI_ATTR_GET(fapi2::ATTR_SKIP_HW_VREF_CAL, l_chip, l_skip_check) );
++    FAPI_TRY( FAPI_ATTR_GET(fapi2::ATTR_IS_SIMULATION, fapi2::Target<fapi2::TARGET_TYPE_SYSTEM>(), is_sim) );
++
++    FAPI_DBG("Values of the attributes for HW VREF cal skip chip: %d skip: %d", l_chip_check, l_skip_check);
++
++    // Chip check is required   && we're in the HW sub-revision where the skip is required - then set a skip value
++    // Skips if we are in sim mode - VREF cal takes too long for simulation
++    return is_sim || ((l_chip_check != 0) && (l_skip_check != 0));
++
++fapi_try_exit:
++    FAPI_ERR("failed accessing ATTR_SKIP_HW_VREF_CAL or ATTR_CHIP_EC_FEATURE_MSS_CHECK_DISABLE_HW_VREF_CAL: 0x%lx (target: %s)",
++             uint64_t(fapi2::current_err), mss::c_str(i_target));
++    fapi2::Assert(false);
++    return false;
++}
++
++///
+ /// @brief ATTR_CHIP_EC_FEATURE_MSS_ODT_CONFIG getter
+ /// @tparam T the fapi2 target type of the target
+ /// @param[in] const ref to the target
+@@ -307,6 +338,37 @@ fapi_try_exit:
+     return false;
+ }
+ 
++///
++/// @brief ATTR_SKIP_RD_VREF_VREFSENSE_OVERRIDE getter
++/// @tparam T the fapi2 target type of the target
++/// @param[in] const ref to the target
++/// @return bool true iff feature is enabled
++///
++template< fapi2::TargetType T >
++inline bool chip_ec_feature_skip_rd_vref_vrefsense_override(const fapi2::Target<T>& i_target)
++{
++    const auto l_chip = mss::find_target<fapi2::TARGET_TYPE_PROC_CHIP>(i_target);
++    uint8_t l_chip_check = 0;
++    uint8_t l_skip_check = 0;
++    uint8_t is_sim = 0;
++
++    FAPI_TRY( FAPI_ATTR_GET(fapi2::ATTR_CHIP_EC_FEATURE_MSS_CHECK_DIABLE_RD_VREF_CAL_VREFSENSE, l_chip, l_chip_check) );
++    FAPI_TRY( FAPI_ATTR_GET(fapi2::ATTR_SKIP_RD_VREF_VREFSENSE_OVERRIDE, l_chip, l_skip_check) );
++    FAPI_TRY( FAPI_ATTR_GET(fapi2::ATTR_IS_SIMULATION, fapi2::Target<fapi2::TARGET_TYPE_SYSTEM>(), is_sim) );
++
++    FAPI_DBG("Values of the attributes VREFSENSE chip: %d skip: %d", l_chip_check, l_skip_check);
++
++    // Chip check is required   && we're in the HW sub-revision where the skip is required - then set a skip value
++    // Skips if we are in sim mode - VREF cal takes too long for simulation
++    return is_sim || ((l_chip_check != 0) && (l_skip_check != 0));
++
++fapi_try_exit:
++    FAPI_ERR("failed accessing ATTR_SKIP_RD_VREF_VREFSENSE_OVERRIDE or ATTR_CHIP_EC_FEATURE_MSS_CHECK_DIABLE_RD_VREF_CAL_VREFSENSE: 0x%lx (target: %s)",
++             uint64_t(fapi2::current_err), mss::c_str(i_target));
++    fapi2::Assert(false);
++    return false;
++}
++
+ } // close mss namespace
+ 
+ #endif
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C b/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C
+index d34b724..2011dfe 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C
+@@ -911,6 +911,9 @@ fapi2::ReturnCode setup_cal_config( const fapi2::Target<fapi2::TARGET_TYPE_MCA>&
+              mss::c_str(i_target), uint16_t(l_cal_config), uint16_t(i_cal_steps_enabled));
+     FAPI_TRY( mss::putScom(i_target, MCA_DDRPHY_PC_INIT_CAL_CONFIG0_P0, l_cal_config) );
+ 
++    // Setsup the workarounds
++    FAPI_TRY(mss::workarounds::dp16::rd_vref_vref_sense_setup(i_target));
++
+ fapi_try_exit:
+     return fapi2::current_err;
+ }
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C
+index 3a4f6c4..709a419 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C
+@@ -96,6 +96,107 @@ fapi_try_exit:
+ }
+ 
+ ///
++/// @brief Modifies the VREF sense bit based upon the passed in value
++/// @param[in] i_target the fapi2 target of the port
++/// @param[in] i_state the state to set bit 62 to
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++/// @note this is a helper function to reduce repeated code in cleanup and workaround functions below
++///
++fapi2::ReturnCode modify_vref_sense(const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target, const mss::states i_state )
++{
++    // Runs the cleanup here
++    static const std::vector<uint64_t> l_addrs =
++    {
++        MCA_DDRPHY_DP16_DATA_BIT_DIR1_P0_0,
++        MCA_DDRPHY_DP16_DATA_BIT_DIR1_P0_1,
++        MCA_DDRPHY_DP16_DATA_BIT_DIR1_P0_2,
++        MCA_DDRPHY_DP16_DATA_BIT_DIR1_P0_3,
++        MCA_DDRPHY_DP16_DATA_BIT_DIR1_P0_4,
++    };
++
++    // Note: this bit does not exist in our scom def, so constexpr'ing it here
++    constexpr uint64_t VREFSENSE_BIT = 62;
++
++    for(const auto& l_reg : l_addrs)
++    {
++        fapi2::buffer<uint64_t> l_data;
++
++        // Gets the data
++        FAPI_TRY(mss::getScom(i_target, l_reg, l_data));
++
++        // Modifies the data
++        l_data.writeBit<VREFSENSE_BIT>(i_state);
++
++        // Writes the data
++        FAPI_TRY(mss::putScom(i_target, l_reg, l_data));
++    }
++
++fapi_try_exit:
++    return fapi2::current_err;
++}
++
++///
++/// @brief Workarounds for after training
++/// @param[in] i_target the fapi2 target of the port
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++/// @note This function is called after training - it will only be run after coarse wr/rd
++///
++fapi2::ReturnCode rd_vref_vref_sense_cleanup( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target )
++{
++    // If the workaround does not need to be run, return success
++    if(mss::chip_ec_feature_skip_rd_vref_vrefsense_override(i_target))
++    {
++        return fapi2::FAPI2_RC_SUCCESS;
++    }
++
++    // Per Ryan King, this needs to be set to OFF for mainline mode
++    return modify_vref_sense(i_target, mss::states::OFF);
++}
++
++///
++/// @brief Sets up the VREF sense values before training
++/// @param[in] i_target the fapi2 target of the port
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++/// @note This function is called before training
++///
++fapi2::ReturnCode rd_vref_vref_sense_setup( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target )
++{
++    // If the workaround does not need to be run, return success
++    if(mss::chip_ec_feature_skip_rd_vref_vrefsense_override(i_target))
++    {
++        return fapi2::FAPI2_RC_SUCCESS;
++    }
++
++    // Per Ryan King, this needs to be set to ON to run training
++    return modify_vref_sense(i_target, mss::states::ON);
++}
++
++///
++/// @brief Workarounds for after training
++/// @param[in] i_target the fapi2 target of the port
++/// @param[in] i_cal_steps_enable the enabled cal steps
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++/// @note This function is called after training - it will only be run after coarse wr/rd
++///
++fapi2::ReturnCode post_training_workarounds( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target,
++        const fapi2::buffer<uint16_t>& i_cal_steps_enabled )
++{
++    // Only runs on the last cal steps (coarse wr/rd)
++    if (i_cal_steps_enabled.getBit<mss::cal_steps::COARSE_RD>() ||
++        i_cal_steps_enabled.getBit<mss::cal_steps::COARSE_WR>())
++    {
++        FAPI_TRY( mss::workarounds::dp16::modify_calibration_results( i_target ) );
++        FAPI_TRY( mss::workarounds::dp16::rd_vref_vref_sense_cleanup( i_target ) );
++    }
++
++    // Returns success, as we might not have run these workarounds, depending upon cal step enable
++    return fapi2::FAPI2_RC_SUCCESS;
++
++fapi_try_exit:
++    return fapi2::current_err;
++}
++
++///
+ /// @brief DP16 Read Diagnostic Configuration 5 work around
+ /// Not in the Model 67 spydef, so we scom them. Should be removed when they are
+ /// added to the spydef.
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H
+index 25e6efc..03ecb9b 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H
+@@ -252,6 +252,33 @@ fapi2::ReturnCode fix_blue_waterfall_gate( const fapi2::Target<fapi2::TARGET_TYP
+ ///
+ fapi2::ReturnCode modify_calibration_results( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target );
+ 
++///
++/// @brief Cleans up the VREF sense values after training
++/// @param[in] i_target the fapi2 target of the port
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++/// @note This function is called after training - it will only be run after coarse wr/rd
++///
++fapi2::ReturnCode rd_vref_vref_sense_cleanup( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target );
++
++///
++/// @brief Sets up the VREF sense values before training
++/// @param[in] i_target the fapi2 target of the port
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++/// @note This function is called before training
++///
++fapi2::ReturnCode rd_vref_vref_sense_setup( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target );
++
++
++///
++/// @brief Workarounds for after training
++/// @param[in] i_target the fapi2 target of the port
++/// @param[in] i_cal_steps_enabled the enabled cal steps
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++/// @note This function is called after training - it will only be run after coarse wr/rd
++///
++fapi2::ReturnCode post_training_workarounds( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target,
++        const fapi2::buffer<uint16_t>& i_cal_steps_enabled );
++
+ namespace wr_vref
+ {
+ 
+diff --git a/src/import/chips/p9/procedures/hwp/memory/p9_mss_draminit_training.C b/src/import/chips/p9/procedures/hwp/memory/p9_mss_draminit_training.C
+index 7ad661b..2b371ba 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/p9_mss_draminit_training.C
++++ b/src/import/chips/p9/procedures/hwp/memory/p9_mss_draminit_training.C
+@@ -192,12 +192,8 @@ extern "C"
+                 // bits for a cal failure. We'll return the proper ReturnCode so all we need to do is FAPI_TRY.
+                 FAPI_TRY( mss::ccs::execute(i_target, l_program, p) );
+ 
+-                // Modifies the training steps, based upon workarounds - only do this if we've run coarse_rd or coarse_wr
+-                if (l_cal_steps_enabled.getBit<mss::cal_steps::COARSE_RD>() ||
+-                    l_cal_steps_enabled.getBit<mss::cal_steps::COARSE_WR>())
+-                {
+-                    FAPI_TRY( mss::workarounds::dp16::modify_calibration_results( p ) );
+-                }
++                // Conducts workarounds after training if needed
++                FAPI_TRY( mss::workarounds::dp16::post_training_workarounds( p, l_cal_steps_enabled ) );
+ 
+                 // If we're aborting on error we can just FAPI_TRY. If we're not, we don't want to exit if there's
+                 // an error but we want to log the error and keep on keeping on.
+diff --git a/src/import/chips/p9/procedures/hwp/memory/p9_mss_eff_config.C b/src/import/chips/p9/procedures/hwp/memory/p9_mss_eff_config.C
+index 10440a8..7bb2356 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/p9_mss_eff_config.C
++++ b/src/import/chips/p9/procedures/hwp/memory/p9_mss_eff_config.C
+@@ -196,18 +196,14 @@ fapi2::ReturnCode p9_mss_eff_config( const fapi2::Target<fapi2::TARGET_TYPE_MCS>
+         FAPI_TRY( l_eff_dimm->dram_rtt_wr  () );
+         FAPI_TRY( l_eff_dimm->dram_rtt_park() );
+ 
++        // Sets up the calibration steps
++        FAPI_TRY( l_eff_dimm->cal_step_enable() );
++        FAPI_TRY( l_eff_dimm->vref_enable_bit() );
++
+         //Let's do some checking
+         FAPI_TRY( mss::check::temp_refresh_mode());
+     }// dimm
+ 
+-    // TODO RTC:160060 Clean up hard coded values at bottom of eff_config
+-    // Don't set these attributes if we only want to set VPD attributes
+-    // This will be cleaner once we resolve attributes below
+-    {
+-        uint16_t l_cal_step[mss::PORTS_PER_MCS] = {0xFAC0, 0xFAC0};
+-        FAPI_TRY( FAPI_ATTR_SET(fapi2::ATTR_MSS_CAL_STEP_ENABLE, i_target, l_cal_step) );
+-    }
+-
+     // Check plug rules. We check the MCS, and this will iterate down to children as needed.
+     FAPI_TRY( mss::plug_rule::enforce_plug_rules(i_target) );
+ 
+diff --git a/src/import/chips/p9/procedures/hwp/perv/p9_getecid.C b/src/import/chips/p9/procedures/hwp/perv/p9_getecid.C
+index ed66eb0..df5f140 100644
+--- a/src/import/chips/p9/procedures/hwp/perv/p9_getecid.C
++++ b/src/import/chips/p9/procedures/hwp/perv/p9_getecid.C
+@@ -118,6 +118,8 @@ static fapi2::ReturnCode setup_memory_work_around_attributes(
+         uint8_t l_value = 1;
+         FAPI_TRY( FAPI_ATTR_SET(fapi2::ATTR_DO_MSS_WR_VREF, i_target, l_value) );
+         FAPI_TRY( FAPI_ATTR_SET(fapi2::ATTR_DO_MSS_VREF_DAC, i_target, l_value) );
++        // The value for this is SKIP - we want to skip in sub DD1.02 HW
++        FAPI_TRY( FAPI_ATTR_SET(fapi2::ATTR_SKIP_HW_VREF_CAL,  i_target, l_value) );
+     }
+ 
+     // Workarounds for modules which are before 1.03 (memory part 2)
+@@ -129,6 +131,8 @@ static fapi2::ReturnCode setup_memory_work_around_attributes(
+         uint8_t l_value = 1;
+         FAPI_TRY( FAPI_ATTR_SET(fapi2::ATTR_DO_MSS_TRAINING_BAD_BITS, i_target, l_value) );
+         FAPI_TRY( FAPI_ATTR_SET(fapi2::ATTR_DO_BLUE_WATERFALL_ADJUST, i_target, l_value) );
++        // The value for this is SKIP - we want to skip in sub DD1.03 HW
++        FAPI_TRY( FAPI_ATTR_SET(fapi2::ATTR_SKIP_RD_VREF_VREFSENSE_OVERRIDE,  i_target, l_value) );
+     }
+ 
+     return fapi2::FAPI2_RC_SUCCESS;
+diff --git a/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml b/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
+index ff1a0b3..b12add3 100644
+--- a/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
++++ b/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
+@@ -2389,6 +2389,23 @@
+   </attribute>
+ 
+   <attribute>
++    <id>ATTR_CHIP_EC_FEATURE_MSS_CHECK_DISABLE_HW_VREF_CAL</id>
++    <targetType>TARGET_TYPE_PROC_CHIP</targetType>
++    <description>
++      In below DD2 Nimbus, the HW VREF calibration needs to be checked against the chip subversion to see if it can be run.
++    </description>
++    <chipEcFeature>
++      <chip>
++        <name>ENUM_ATTR_NAME_NIMBUS</name>
++        <ec>
++          <value>0x20</value>
++          <test>LESS_THAN</test>
++        </ec>
++      </chip>
++    </chipEcFeature>
++  </attribute>
++
++  <attribute>
+     <id>ATTR_CHIP_EC_FEATURE_MSS_ODT_CONFIG</id>
+     <targetType>TARGET_TYPE_PROC_CHIP</targetType>
+     <description>
+@@ -2426,6 +2443,23 @@
+   </attribute>
+ 
+   <attribute>
++    <id>ATTR_CHIP_EC_FEATURE_MSS_CHECK_DIABLE_RD_VREF_CAL_VREFSENSE</id>
++    <targetType>TARGET_TYPE_PROC_CHIP</targetType>
++    <description>
++      In below DD2 Nimbus, the RD VREF cal VREF sense needs to be checked against the chip subversion to see if it should be run.
++    </description>
++    <chipEcFeature>
++      <chip>
++        <name>ENUM_ATTR_NAME_NIMBUS</name>
++        <ec>
++          <value>0x20</value>
++          <test>LESS_THAN</test>
++        </ec>
++      </chip>
++    </chipEcFeature>
++  </attribute>
++
++  <attribute>
+     <id>ATTR_CHIP_EC_FEATURE_RNG_ADAPTEST_SETTINGS</id>
+     <targetType>TARGET_TYPE_PROC_CHIP</targetType>
+     <description>
+diff --git a/src/import/chips/p9/procedures/xml/attribute_info/memory_workarounds_attributes.xml b/src/import/chips/p9/procedures/xml/attribute_info/memory_workarounds_attributes.xml
+index 02b9915..7e3e7cb 100644
+--- a/src/import/chips/p9/procedures/xml/attribute_info/memory_workarounds_attributes.xml
++++ b/src/import/chips/p9/procedures/xml/attribute_info/memory_workarounds_attributes.xml
+@@ -44,6 +44,30 @@
+   </attribute>
+ 
+   <attribute>
++    <id>ATTR_SKIP_HW_VREF_CAL</id>
++    <targetType>TARGET_TYPE_PROC_CHIP</targetType>
++    <description>
++      In sub DD1.02 Nimbus the HW VREF calibrations should not be run
++    </description>
++    <initToZero></initToZero>
++    <valueType>uint8</valueType>
++    <enum>RUN = 0, SKIP = 1</enum>
++    <writeable/>
++  </attribute>
++
++  <attribute>
++    <id>ATTR_SKIP_RD_VREF_VREFSENSE_OVERRIDE</id>
++    <targetType>TARGET_TYPE_PROC_CHIP</targetType>
++    <description>
++      In sub DD1.03 Nimbus the HW VREF calibrations should not be run
++    </description>
++    <initToZero></initToZero>
++    <valueType>uint8</valueType>
++    <enum>RUN = 0, SKIP = 1</enum>
++    <writeable/>
++  </attribute>
++
++  <attribute>
+     <id>ATTR_DO_MSS_VREF_DAC</id>
+     <targetType>TARGET_TYPE_PROC_CHIP</targetType>
+     <description>
+diff --git a/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml b/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml
+index ec1230f..fef970b 100644
+--- a/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml
++++ b/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml
+@@ -65,6 +65,14 @@
+           <id>ATTR_MSS_MRW_REFRESH_RATE_REQUEST</id>
+           <default>0</default>
+      </attribute>
++     <attribute>
++         <id>ATTR_SKIP_HW_VREF_CAL</id>
++         <default>0x0</default>
++     </attribute>
++     <attribute>
++         <id>ATTR_SKIP_RD_VREF_VREFSENSE_OVERRIDE</id>
++         <default>0x1</default>
++     </attribute>
+ 
+       <attribute>
+           <id>ATTR_SECTOR_BUFFER_STRENGTH</id>
+diff --git a/src/usr/targeting/common/xmltohb/attribute_types.xml b/src/usr/targeting/common/xmltohb/attribute_types.xml
+index e052f88..8317ff0 100644
+--- a/src/usr/targeting/common/xmltohb/attribute_types.xml
++++ b/src/usr/targeting/common/xmltohb/attribute_types.xml
+@@ -32817,6 +32817,45 @@ Measured in GB</description>
+     </hwpfToHbAttrMap>
+ </attribute>
+ 
++<attribute>
++    <id>SKIP_HW_VREF_CAL</id>
++    <description>
++        
++      In sub DD1.02 Nimbus the HW VREF calibrations should not be run
++    
++    </description>
++    <simpleType>
++        <uint8_t>
++        </uint8_t>
++    </simpleType>
++    <persistency>volatile-zeroed</persistency>
++    <readable/>
++    <writeable/>
++    <hwpfToHbAttrMap>
++        <id>ATTR_SKIP_HW_VREF_CAL</id>
++        <macro>DIRECT</macro>
++    </hwpfToHbAttrMap>
++</attribute>
++
++<attribute>
++    <id>SKIP_RD_VREF_VREFSENSE_OVERRIDE</id>
++    <description>
++        
++      In sub DD1.03 Nimbus the HW VREF calibrations should not be run
++    
++    </description>
++    <simpleType>
++        <uint8_t>
++        </uint8_t>
++    </simpleType>
++    <persistency>volatile-zeroed</persistency>
++    <readable/>
++    <writeable/>
++    <hwpfToHbAttrMap>
++        <id>ATTR_SKIP_RD_VREF_VREFSENSE_OVERRIDE</id>
++        <macro>DIRECT</macro>
++    </hwpfToHbAttrMap>
++</attribute>
+ 
+ <attribute>
+     <id>DO_MSS_VREF_DAC</id>
+diff --git a/src/usr/targeting/common/xmltohb/target_types.xml b/src/usr/targeting/common/xmltohb/target_types.xml
+index 833597d..9e0d601 100755
+--- a/src/usr/targeting/common/xmltohb/target_types.xml
++++ b/src/usr/targeting/common/xmltohb/target_types.xml
+@@ -243,13 +243,15 @@
+     <attribute><id>PM_SPIVID_MAJORITY_VOTE_ENABLE</id></attribute>
+     <attribute><id>PM_SPIVID_MAX_RETRIES</id></attribute>
+     <attribute><id>PROC_DPLL_DIVIDER</id></attribute>
+-     <!-- End pm_hwp_attributes.xml -->
+-     <!-- Begin poreve_memory_attributes.xml -->
+-     <attribute><id>SBE_SEEPROM_I2C_ADDRESS_BYTES</id></attribute>
+-     <attribute><id>SBE_SEEPROM_I2C_DEVICE_ADDRESS</id></attribute>
+-     <attribute><id>SBE_SEEPROM_I2C_PORT</id></attribute>
+-     <attribute><id>PNOR_I2C_ADDRESS_BYTES</id></attribute>
+-     <!-- End Supporting poreve_memory_attributes.xml -->
++    <!-- End pm_hwp_attributes.xml -->
++    <attribute><id>SKIP_HW_VREF_CAL</id></attribute>
++    <attribute><id>SKIP_RD_VREF_VREFSENSE_OVERRIDE</id></attribute>
++    <!-- Begin poreve_memory_attributes.xml -->
++    <attribute><id>SBE_SEEPROM_I2C_ADDRESS_BYTES</id></attribute>
++    <attribute><id>SBE_SEEPROM_I2C_DEVICE_ADDRESS</id></attribute>
++    <attribute><id>SBE_SEEPROM_I2C_PORT</id></attribute>
++    <attribute><id>PNOR_I2C_ADDRESS_BYTES</id></attribute>
++    <!-- End Supporting poreve_memory_attributes.xml -->
+ <!-- TODO RTC 82688. This next attribute moves to hostboot only
+      with this story  -->
+     <attribute><id>PROC_SECURITY_SETUP_VECTOR</id></attribute>
+-- 
+1.8.2.2
+

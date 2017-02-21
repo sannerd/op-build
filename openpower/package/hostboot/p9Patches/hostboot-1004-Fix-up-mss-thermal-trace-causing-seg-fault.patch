@@ -1,0 +1,26 @@
+From 90f94b71ed82d99f2f09f6b163bfa59fc958f8fb Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Wed, 1 Mar 2017 14:16:03 -0600
+Subject: [PATCH v1 1004/1004] Fix up mss thermal trace causing seg fault
+
+Change-Id: Ia95cefb5314e16056f078ac6d7dbe8a212fccff2
+---
+ src/import/chips/p9/procedures/hwp/memory/lib/power_thermal/throttle.C | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/power_thermal/throttle.C b/src/import/chips/p9/procedures/hwp/memory/lib/power_thermal/throttle.C
+index d01d7cc..606c556 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/power_thermal/throttle.C
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/power_thermal/throttle.C
+@@ -175,7 +175,7 @@ fapi2::ReturnCode throttle::power_regulator_throttles ()
+               "Failed to calculate the max and idle power for port %s",
+               mss::c_str(iv_target));
+ 
+-    FAPI_INF("POWER throttles: %s max port power is %f", l_port_power_calc_max);
++    FAPI_INF("POWER throttles: %s max port power is %f", mss::c_str(iv_target), l_port_power_calc_max);
+ 
+     //Calculate the power curve slope and intercept using the port's min and max power values
+     FAPI_TRY(calc_power_curve(l_port_power_calc_idle,
+-- 
+1.8.2.2
+
