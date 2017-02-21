@@ -1,0 +1,31 @@
+From 1a35da768ffe1a39fc9241f0232febaf6c5cdf13 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Wed, 22 Feb 2017 18:46:08 -0600
+Subject: [PATCH v1 1003/1004] Make ISTEP_MODE volatile
+
+  - Currently ISTEP_MODE was non volatile, which would result
+    being permanently stuck in istep mode after a successful
+    boot to OPAL in istep mode.  Now it always defaults to non
+    istep and mbox scratch regsiter controls
+
+Change-Id: I0d6061502ee7454c7f3d2356b1f127bc810636be
+---
+ src/usr/targeting/common/xmltohb/attribute_types.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/usr/targeting/common/xmltohb/attribute_types.xml b/src/usr/targeting/common/xmltohb/attribute_types.xml
+index 48499b8..aadbc6e 100644
+--- a/src/usr/targeting/common/xmltohb/attribute_types.xml
++++ b/src/usr/targeting/common/xmltohb/attribute_types.xml
+@@ -1568,7 +1568,7 @@
+             <default>0</default>
+         </uint8_t>
+     </simpleType>
+-    <persistency>non-volatile</persistency>
++    <persistency>volatile-zeroed</persistency>
+     <readable/>
+     <writeable/>
+     <hwpfToHbAttrMap>
+-- 
+1.8.2.2
+

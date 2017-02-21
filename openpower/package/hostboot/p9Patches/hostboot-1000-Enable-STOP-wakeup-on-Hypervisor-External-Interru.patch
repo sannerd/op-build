@@ -1,0 +1,49 @@
+From 464d852fda7ee721ad4d37b189ced14891f0ee45 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Thu, 2 Mar 2017 11:28:39 -0600
+Subject: [PATCH v1] Enable STOP wakeup on Hypervisor External Interrupt
+
+  - Latest HCODE image change requirements
+    now need to enable LPCR[17] prior to issuing STOP
+
+Change-Id: I21488e0795b5dcd710b026ebbace2d158fdf9694
+---
+ src/kernel/misc.C | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/kernel/misc.C b/src/kernel/misc.C
+index 0d81d98..2a4889b 100644
+--- a/src/kernel/misc.C
++++ b/src/kernel/misc.C
+@@ -5,7 +5,7 @@
+ /*                                                                        */
+ /* OpenPOWER HostBoot Project                                             */
+ /*                                                                        */
+-/* Contributors Listed Below - COPYRIGHT 2011,2016                        */
++/* Contributors Listed Below - COPYRIGHT 2011,2017                        */
+ /* [+] International Business Machines Corp.                              */
+ /*                                                                        */
+ /*                                                                        */
+@@ -286,7 +286,8 @@ namespace KernelMisc
+         // Clear LPCR values that wakes up from winkle.  LPCR[49, 50, 51]
+         // Otherwise, there may be an interrupt pending or something that
+         // prevents us from fully entering winkle.
+-        setLPCR(getLPCR() & (~0x0000000000007000));
++        // Turn on LPCR[17] to enable Hypervisor External Interrupts
++        setLPCR((getLPCR() & (~0x0000000000007000)) | 0x0000400000000000) ;
+ 
+         // Deactivate CPU from kernel.
+         cpu->winkled = true;
+@@ -387,7 +388,8 @@ namespace KernelMisc
+         // Clear LPCR values that wakes up from winkle.  LPCR[49, 50, 51]
+         // Otherwise, there may be an interrupt pending or something that
+         // prevents us from fully entering winkle.
+-        setLPCR(getLPCR() & (~0x0000000000007000));
++        // Turn on LPCR[17] to enable Hypervisor External Interrupts
++        setLPCR((getLPCR() & (~0x0000000000007000)) | 0x0000400000000000) ;
+ 
+         // Deactivate CPU from kernel.
+         cpu->winkled = true;
+-- 
+1.8.2.2
+
