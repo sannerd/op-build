@@ -1,0 +1,29 @@
+From f1ed638443cf8790e4f382b3eefa11ec06c2bdd2 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Wed, 30 Aug 2017 10:31:20 -0500
+Subject: [PATCH v1 1006/1006] Fix bug in single Target/ATTR debug tool
+
+Current code will terminate Hostboot with bad
+memory access, this corrects the mistake
+
+Change-Id: I8216cf4e6bda5df4fde5523f4b0ef471120152ce
+---
+ src/usr/fapi2/plat_attr_override_sync.C | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/usr/fapi2/plat_attr_override_sync.C b/src/usr/fapi2/plat_attr_override_sync.C
+index 8eb2a12..e978dbb 100644
+--- a/src/usr/fapi2/plat_attr_override_sync.C
++++ b/src/usr/fapi2/plat_attr_override_sync.C
+@@ -939,7 +939,7 @@ void AttrOverrideSync::dynAttrGet()
+                                  VMM_DEBUG_COMM_SIZE);
+ 
+         uint32_t * l_targInfo =
+-          reinterpret_cast<uint32_t*>(VMM_VADDR_DEBUG_COMM);
++          reinterpret_cast<uint32_t*>(l_vaddr);
+ 
+         FAPI_INF("init: processing dynamic ATTR get");
+         triggerAttrSync(static_cast<fapi2::TargetType>(
+-- 
+1.8.2.2
+

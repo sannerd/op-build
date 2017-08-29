@@ -1,0 +1,28 @@
+From 0eea6ed4d3f088f022c0bad132b6c8276804d26d Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 18 Aug 2017 07:52:21 -0500
+Subject: [PATCH v1] Remove default PGPE_HCODE_FUNCTION_ENABLE, to allow pstate
+ control
+
+---
+ witherspoon.xml | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/witherspoon.xml b/witherspoon.xml
+index 32d2f43..eaf4281 100644
+--- a/witherspoon.xml
++++ b/witherspoon.xml
+@@ -13949,10 +13949,6 @@
+ 		<default>0</default>
+ 	</attribute>
+ 	<attribute>
+-		<id>PGPE_HCODE_FUNCTION_ENABLE</id>
+-		<default>0</default>
+-	</attribute>
+-	<attribute>
+ 		<id>PHYP_SYSTEM_TYPE</id>
+ 		<default></default>
+ 	</attribute>
+-- 
+1.8.2.2
+
