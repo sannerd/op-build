@@ -1,0 +1,324 @@
+From b7ceb53d0edafb41c2abe2fa5ee3aa91c0f01ae4 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Thu, 3 Aug 2017 07:19:00 -0500
+Subject: [PATCH v1 1002/1004] Ability to dump single Target/ATTR via debug
+ interface
+
+Change-Id: I1122a57f6c3e8f47c0ab6a04309da76092e8da41
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/44279
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins OP Build CI <op-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins OP HW <op-hw-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Nicholas E. Bofferding <bofferdn@us.ibm.com>
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Prachi Gupta <pragupta@us.ibm.com>
+Reviewed-by: William G. Hoffa <wghoffa@us.ibm.com>
+Reviewed-by: Daniel M. Crowell <dcrowell@us.ibm.com>
+---
+ src/include/usr/fapi2/plat_attr_override_sync.H |  21 +++-
+ src/include/usr/initservice/mboxRegs.H          |   1 +
+ src/include/usr/isteps/spless_255list.H         |   6 ++
+ src/include/usr/util/utilmbox_scratch.H         |   5 +
+ src/usr/fapi2/plat_attr_override_sync.C         | 123 +++++++++++++++---------
+ src/usr/initservice/istepdispatcher/sptask.C    |   4 +
+ 6 files changed, 110 insertions(+), 50 deletions(-)
+
+diff --git a/src/include/usr/fapi2/plat_attr_override_sync.H b/src/include/usr/fapi2/plat_attr_override_sync.H
+index 4be640e..07bcd5a 100644
+--- a/src/include/usr/fapi2/plat_attr_override_sync.H
++++ b/src/include/usr/fapi2/plat_attr_override_sync.H
+@@ -221,10 +221,16 @@ public:
+      * This is called for ALL FAPI Attributes even if they are
+      * directly backed into HB targeting
+      *
++     * @param[in] i_type     FAPI type to limit scope to, default none
++     * @param[in] i_fapiPos  FAPI pos to limit scope to, default none
++     * @param[in] i_attrHash Attribute hash to limit scope to, default none
++     *
+      * - The attribute is saved to be synced to debug interface (Cronus)
+      *
+      */
+-    void triggerAttrSync();
++    void triggerAttrSync(fapi2::TargetType i_type = fapi2::TARGET_TYPE_NONE,
++                         uint32_t i_fapiPos = TARGETING::FAPI_POS_NA,
++                         uint32_t i_attrHash = 0x0);
+ 
+     /**
+      * @brief This function will clear all attribute overrides in effect.
+@@ -235,7 +241,7 @@ public:
+ 
+     /**
+      * @brief This function will allow the debug interface to set
+-     *        attribut overrides "dynamically" at any point in the IPL
++     *        attribute overrides "dynamically" at any point in the IPL
+      *        between isteps.  The debug interface is used to process
+      *        the attributes in the same format as the ATTR_TMP and ATTR_PERM
+      *        PNOR partition binary blobs
+@@ -244,6 +250,17 @@ public:
+     void dynSetAttrOverrides();
+ 
+     /**
++     * @brief This function will allow the debug interface to dump a
++     *        specific attribute from a given fapi target type/pos
++     *        at any point in the IPL between isteps.  The debug interface
++     *        is used to process a simple request, and then dump the
++     *        atrribute(s) back down the debug interface via same
++     *        mechanism as triggerAttrSync
++     *
++     */
++    void dynAttrGet();
++
++    /**
+      * @brief This function actually sends the FAPI Sync tank attributes
+      *  across the debug interface
+      */
+diff --git a/src/include/usr/initservice/mboxRegs.H b/src/include/usr/initservice/mboxRegs.H
+index 90f639e..a98cb93 100644
+--- a/src/include/usr/initservice/mboxRegs.H
++++ b/src/include/usr/initservice/mboxRegs.H
+@@ -92,6 +92,7 @@ namespace SPLESS
+             uint32_t allowAttrOverrides  :1;   //7
+             uint32_t reserved2           :24;  //8:31
+         } PACKED;
++        // NOTE: Used for debug tool communication during Hostboot IPL
+     };
+ 
+     // Mailbox Scratch Register 4
+diff --git a/src/include/usr/isteps/spless_255list.H b/src/include/usr/isteps/spless_255list.H
+index 8eb69b7..074e898 100644
+--- a/src/include/usr/isteps/spless_255list.H
++++ b/src/include/usr/isteps/spless_255list.H
+@@ -66,6 +66,7 @@ namespace   INITSERVICE
+     const   uint8_t     DUMP_FAPI_ATTR         =   0x03;
+     const   uint8_t     SET_ATTR_OVERRIDES     =   0x04;
+     const   uint8_t     CLEAR_ATTR_OVERRIDES   =   0x05;
++    const   uint8_t     GET_FAPI_ATTR          =   0x06;
+ 
+ 
+     const   TaskInfo    g_istep255[]  =   {
+@@ -99,6 +100,11 @@ namespace   INITSERVICE
+                 NULL,
+                 { NONE, EXT_IMAGE, IPL_NOOP, false }
+         },
++        {
++                ISTEPNAME(255,6, "get_fapi_attr"),
++                NULL,
++                { NONE, EXT_IMAGE, IPL_NOOP, false }
++        },
+ };
+ 
+ const DepModInfo g_istep255Dependancies = {
+diff --git a/src/include/usr/util/utilmbox_scratch.H b/src/include/usr/util/utilmbox_scratch.H
+index ce4fd36..0849c8c 100644
+--- a/src/include/usr/util/utilmbox_scratch.H
++++ b/src/include/usr/util/utilmbox_scratch.H
+@@ -61,7 +61,12 @@ namespace Util
+         MSG_TYPE_TRACE          =       0x00,
+         MSG_TYPE_ATTRDUMP       =       0x01,
+         MSG_TYPE_ATTROVERRIDE   =       0x02,
++        MSG_TYPE_ATTRGET        =       0x03,
+ 
++        //ATTR GET control words
++        DEBUG_ATTRGET_FAPI_TYPE =       0x0,
++        DEBUG_ATTRGET_FAPI_POS  =       0x1,
++        DEBUG_ATTRGET_HASH      =       0x2,
+     };
+ 
+     /**
+diff --git a/src/usr/fapi2/plat_attr_override_sync.C b/src/usr/fapi2/plat_attr_override_sync.C
+index 7069af4..8eb2a12 100644
+--- a/src/usr/fapi2/plat_attr_override_sync.C
++++ b/src/usr/fapi2/plat_attr_override_sync.C
+@@ -713,7 +713,8 @@ void AttrOverrideSync::setAttrActions(const AttributeId i_attrId,
+ }
+ 
+ //******************************************************************************
+-void AttrOverrideSync::triggerAttrSync()
++void AttrOverrideSync::triggerAttrSync(fapi2::TargetType i_type,
++                                       uint32_t i_fapiPos, uint32_t i_attrHash)
+ {
+     uint8_t * l_buf = NULL;
+ 
+@@ -735,6 +736,22 @@ void AttrOverrideSync::triggerAttrSync()
+             continue; //not a FAPI2 target -- skip to next target
+         }
+ 
++        //Check to see if looking for a specific type/fapi_pos
++        if(i_type != fapi2::TARGET_TYPE_NONE)
++        {
++            if (i_type != l_fType) // types don't match, skip
++            {
++                continue;
++            }
++
++            //Now look for specific pos (if set)
++            if((i_fapiPos != TARGETING::FAPI_POS_NA) && // specific pos
++               (i_fapiPos != l_pTarget->getAttr<TARGETING::ATTR_FAPI_POS>()))
++            {
++                continue;
++            }
++        }
++
+         //skip if not functional
+         if(l_pTarget->getAttr<TARGETING::ATTR_HWAS_STATE>().functional
+            != true)
+@@ -770,6 +787,13 @@ void AttrOverrideSync::triggerAttrSync()
+ 
+         for(size_t i = 0; i < l_elems; i++)
+         {
++            //Look for specific ATTR
++            if((i_attrHash!= 0x0) &&  //looking for specific ATTR
++               (i_attrHash != l_attrs[i].iv_attrId))
++            {
++                continue;
++            }
++
+             // Write the attribute to the SyncAttributeTank to sync to Cronus
+             size_t l_bytes =
+               l_attrs[i].iv_attrElemSizeBytes * l_attrs[i].iv_dims[0] *
+@@ -840,51 +864,22 @@ void AttrOverrideSync::dynSetAttrOverrides()
+     }
+ 
+ #ifndef __HOSTBOOT_RUNTIME
+-    errlHndl_t err = NULL;
+-    int64_t rc = 0;
++    errlHndl_t err = nullptr;
++    void * l_vaddr = nullptr;
+ 
+     do
+     {
+-        // Create a memory block to serve as Debug Comm channel
+-        // NOTE: using mm_alloc_block since this code is running before we
+-        // have mainstore and we must have contiguous blocks of memory for
+-        // Cronus putmempba
+-        rc = mm_alloc_block( NULL,
+-                             reinterpret_cast<void*>
+-                             (VMM_VADDR_DEBUG_COMM),
+-                             VMM_DEBUG_COMM_SIZE);
+-        if(rc == -EALREADY)
+-        {
+-            //-EALREADY inidciates the block is already mapped -- ignore
+-            rc = 0;
+-        }
++        // Allocate a contiguous block of memory -- can just use malloc for
++        // this because Cronus will use putmempba to load
++        l_vaddr = malloc(VMM_DEBUG_COMM_SIZE);
+ 
+-        if( rc )
+-        {
+-            // This is a debug interface, just emit trace and exit
+-            FAPI_ERR("dynSetAttrOverrides() - "
+-                     "Error from mm_alloc_block : rc=%d", rc );
+-            break;
+-        }
+-
+-        rc = mm_set_permission(reinterpret_cast<void*>
+-                               (VMM_VADDR_DEBUG_COMM),
+-                               VMM_DEBUG_COMM_SIZE,
+-                               WRITABLE | ALLOCATE_FROM_ZERO);
+-        if( rc )
+-        {
+-            // This is a debug interface, just emit trace and exit
+-            FAPI_ERR("dynSetAttrOverrides() - "
+-                     "Error from mm_set_permission : rc=%d", rc );
+-            break;
+-        }
+ 
+         //Now masquerade this at the ATTR_TMP PNOR section so the underlying
+         //ATTR override and bin file can be used as is
+         PNOR::SectionInfo_t l_sectionInfo;
+         l_sectionInfo.id = PNOR::ATTR_TMP;
+         l_sectionInfo.name = "ATTR_TMP";
+-        l_sectionInfo.vaddr = VMM_VADDR_DEBUG_COMM;
++        l_sectionInfo.vaddr = reinterpret_cast<uint64_t>(l_vaddr);
+         l_sectionInfo.flashAddr = 0xFFFFFFFF; //Not used
+         l_sectionInfo.size = VMM_DEBUG_COMM_SIZE;
+         l_sectionInfo.eccProtected = false;
+@@ -897,11 +892,9 @@ void AttrOverrideSync::dynSetAttrOverrides()
+ 
+         //Send debug message to tool to update memory
+         //Must clear data to actually alloction phys pages
+-        memset (reinterpret_cast<void*>(VMM_VADDR_DEBUG_COMM), 0xFF,
+-                VMM_DEBUG_COMM_SIZE);
+-        uint64_t l_addr =
+-          mm_virt_to_phys(reinterpret_cast<void*>(VMM_VADDR_DEBUG_COMM));
+-        FAPI_INF("virt[%llx] phys[%llx]", VMM_VADDR_DEBUG_COMM, l_addr);
++        memset (l_vaddr, 0xFF, VMM_DEBUG_COMM_SIZE);
++        uint64_t l_addr = mm_virt_to_phys(l_vaddr);
++        FAPI_INF("virt[%p] phys[%llx]", l_vaddr, l_addr);
+         Util::writeDebugCommRegs(Util::MSG_TYPE_ATTROVERRIDE,
+                                  l_addr,
+                                  VMM_DEBUG_COMM_SIZE);
+@@ -917,13 +910,47 @@ void AttrOverrideSync::dynSetAttrOverrides()
+         }
+     }while(0);
+ 
+-    // Attempt to clean up after ourselves.  Ignore errors on cleanup
+-    // path in debug interface
+-    //release all pages in page block
+-    rc = mm_remove_pages(RELEASE, reinterpret_cast<void*>(VMM_VADDR_DEBUG_COMM),
+-                         VMM_DEBUG_COMM_SIZE);
+-    rc = mm_set_permission(reinterpret_cast<void*>(VMM_VADDR_DEBUG_COMM),
+-                           VMM_DEBUG_COMM_SIZE, NO_ACCESS | ALLOCATE_FROM_ZERO);
++    // Attempt to clean up after ourselves
++    free(l_vaddr);
++    l_vaddr = nullptr;
++#endif
++}
++
++//******************************************************************************
++void AttrOverrideSync::dynAttrGet()
++{
++#ifndef __HOSTBOOT_RUNTIME
++    void * l_vaddr = nullptr;
++
++    do
++    {
++        // Create a memory block to serve as Debug Comm channel
++        // Allocate a contiguous block of memory -- can just use malloc for
++        // this because Cronus will use putmempba to load
++        l_vaddr = malloc(VMM_DEBUG_COMM_SIZE);
++
++        //Send debug message to tool to update memory
++        //Must clear data to actually alloction phys pages
++        memset (l_vaddr, 0xFF, VMM_DEBUG_COMM_SIZE);
++        uint64_t l_addr = mm_virt_to_phys(l_vaddr);
++        FAPI_INF("virt[%p] phys[%llx]", l_vaddr, l_addr);
++        Util::writeDebugCommRegs(Util::MSG_TYPE_ATTRGET,
++                                 l_addr,
++                                 VMM_DEBUG_COMM_SIZE);
++
++        uint32_t * l_targInfo =
++          reinterpret_cast<uint32_t*>(VMM_VADDR_DEBUG_COMM);
++
++        FAPI_INF("init: processing dynamic ATTR get");
++        triggerAttrSync(static_cast<fapi2::TargetType>(
++                          l_targInfo[Util::DEBUG_ATTRGET_FAPI_TYPE]),
++                        l_targInfo[Util::DEBUG_ATTRGET_FAPI_POS],
++                        l_targInfo[Util::DEBUG_ATTRGET_HASH]);
++    }while(0);
++
++    // Attempt to clean up after ourselves.
++    free(l_vaddr);
++    l_vaddr = nullptr;
+ #endif
+ }
+ 
+diff --git a/src/usr/initservice/istepdispatcher/sptask.C b/src/usr/initservice/istepdispatcher/sptask.C
+index af9fb38..147fade 100644
+--- a/src/usr/initservice/istepdispatcher/sptask.C
++++ b/src/usr/initservice/istepdispatcher/sptask.C
+@@ -120,6 +120,10 @@ void handleControlCmd( SPLessCmd & io_cmd )
+         fapi2::theAttrOverrideSync().dynSetAttrOverrides();
+         break;
+ 
++    case GET_FAPI_ATTR:
++        fapi2::theAttrOverrideSync().dynAttrGet();
++        break;
++
+     case CLEAR_ATTR_OVERRIDES:
+         fapi2::theAttrOverrideSync().clearAttrOverrides();
+         break;
+-- 
+1.8.2.2
+

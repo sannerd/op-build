@@ -1,0 +1,128 @@
+From 62cdb71406ac99eca9de4111efa4ecaea70400c7 Mon Sep 17 00:00:00 2001
+From: Prasad Bg Ranganath <prasadbgr@in.ibm.com>
+Date: Wed, 23 Aug 2017 21:27:22 -0500
+Subject: [PATCH v1 1003/1004] Removed the GPE0/1 halt state in the occ reset
+ procrdure
+
+CQ:SW399890
+Change-Id: I59e633feba8d32c02325896a961f315f7506c71b
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/45081
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: Gregory S. Still <stillgs@us.ibm.com>
+Reviewed-by: Daniel M. Crowell <dcrowell@us.ibm.com>
+Reviewed-by: Jennifer A. Stofer <stofer@us.ibm.com>
+---
+ .../p9/procedures/hwp/pm/p9_pm_occ_gpe_init.C      | 31 ----------------
+ .../xml/error_info/p9_pm_occ_gpe_init_errors.xml   | 43 ----------------------
+ 2 files changed, 74 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/pm/p9_pm_occ_gpe_init.C b/src/import/chips/p9/procedures/hwp/pm/p9_pm_occ_gpe_init.C
+index 3056bf5..97e8b13 100644
+--- a/src/import/chips/p9/procedures/hwp/pm/p9_pm_occ_gpe_init.C
++++ b/src/import/chips/p9/procedures/hwp/pm/p9_pm_occ_gpe_init.C
+@@ -151,22 +151,6 @@ fapi2::ReturnCode pm_occ_gpe_reset(
+             l_instrAddrReg  =   PU_GPE0_PPE_XIDBGPRO;
+             l_intVecReg     =   PU_GPE0_GPEIVPR_SCOM;
+             l_gpeBaseAddress.push_back( GPE0_BASE_ADDRESS );
+-
+-
+-            //Check if GPE0 is already halted
+-            FAPI_TRY(fapi2::getScom(i_target, l_statusReg, l_data64),
+-                     "ERROR: Failed to get the OCC GPE0 status");
+-
+-            FAPI_ASSERT_NOEXIT( (l_data64.getBit<0>() != 1),
+-                                fapi2::GPE0_IN_HALT_BEFORE_RESET(fapi2::FAPI2_ERRL_SEV_RECOVERED)
+-                                .set_CHIP( i_target )
+-                                .set_GPE0_STATUS( l_data64 )
+-                                .set_GPE0_MODE( HALT )
+-                                .set_GPE0_BASE_ADDRESS( l_gpeBaseAddress ),
+-                                "OCC GPE0 in Halt State Before Reset");
+-            fapi2::current_err = fapi2::FAPI2_RC_SUCCESS;
+-            break;
+-
+         }
+         else if (i_engine == p9occgpe::GPE1)
+         {
+@@ -175,23 +159,8 @@ fapi2::ReturnCode pm_occ_gpe_reset(
+             l_instrAddrReg = PU_GPE1_PPE_XIDBGPRO;
+             l_intVecReg = PU_GPE1_GPEIVPR_SCOM;
+             l_gpeBaseAddress.push_back( GPE1_BASE_ADDRESS );
+-
+-            //Check if GPE1 is already halted
+-            FAPI_TRY(fapi2::getScom(i_target, l_statusReg, l_data64),
+-                     "ERROR: Failed to get the OCC GPE1 status");
+-
+-            FAPI_ASSERT_NOEXIT( (l_data64.getBit<0>() != 1),
+-                                fapi2::GPE1_IN_HALT_BEFORE_RESET(fapi2::FAPI2_ERRL_SEV_RECOVERED)
+-                                .set_CHIP( i_target )
+-                                .set_GPE1_STATUS( l_data64 )
+-                                .set_GPE1_MODE( HALT )
+-                                .set_GPE1_BASE_ADDRESS( l_gpeBaseAddress ),
+-                                "OCC GPE1 in Halt State Before Reset");
+-            fapi2::current_err = fapi2::FAPI2_RC_SUCCESS;
+-            break;
+         }
+ 
+-
+         // Halt the OCC GPE
+         l_data64.flush<0>().insertFromRight(p9hcd::HALT, 1, 3);
+         FAPI_TRY(putScom(i_target, l_controlReg, l_data64),
+diff --git a/src/import/chips/p9/procedures/xml/error_info/p9_pm_occ_gpe_init_errors.xml b/src/import/chips/p9/procedures/xml/error_info/p9_pm_occ_gpe_init_errors.xml
+index 64d7041..0c2a01a 100644
+--- a/src/import/chips/p9/procedures/xml/error_info/p9_pm_occ_gpe_init_errors.xml
++++ b/src/import/chips/p9/procedures/xml/error_info/p9_pm_occ_gpe_init_errors.xml
+@@ -43,49 +43,6 @@
+   </hwpError>
+   <!-- ********************************************************************* -->
+   <hwpError>
+-    <rc>RC_GPE0_IN_HALT_BEFORE_RESET</rc>
+-    <description>Reset not attempted as GPE0 was already in a halt state </description>
+-     <ffdc>CHIP</ffdc>
+-     <ffdc>GPE0_STATUS</ffdc>
+-     <ffdc>GPE0_MODE</ffdc>
+-        
+-     <collectRegisterFfdc>
+-        <id>OCCGPE0_FFDC_REGISTERS</id>
+-        <target>CHIP</target>
+-        <targetType>TARGET_TYPE_PROC_CHIP</targetType>
+-     </collectRegisterFfdc>
+-
+-    <collectFfdc>p9_collect_ppe_state, CHIP, GPE0_MODE, GPE0_BASE_ADDRESS</collectFfdc>
+-
+-    <callout>
+-      <procedure>CODE</procedure>
+-      <priority>HIGH</priority>
+-    </callout>
+-
+-  </hwpError>
+-  <!-- ********************************************************************* -->
+-  <hwpError>
+-    <rc>RC_GPE1_IN_HALT_BEFORE_RESET</rc>
+-    <description>Reset not attempted as GPE1 was already in a halt state </description>
+-     <ffdc>CHIP</ffdc>
+-     <ffdc>GPE1_STATUS</ffdc>
+-     <ffdc>GPE1_MODE</ffdc>
+-
+-     <collectFfdc>p9_collect_ppe_state, CHIP, GPE1_MODE, GPE1_BASE_ADDRESS</collectFfdc>
+-
+-     <collectRegisterFfdc>
+-        <id>OCCGPE1_FFDC_REGISTERS</id>
+-        <target>CHIP</target>
+-        <targetType>TARGET_TYPE_PROC_CHIP</targetType>
+-     </collectRegisterFfdc>
+-
+-    <callout>
+-      <procedure>CODE</procedure>
+-      <priority>HIGH</priority>
+-    </callout>
+-  </hwpError>
+-  <!-- ********************************************************************* -->
+-  <hwpError>
+       <rc>RC_PM_OCC_GPE0_RESET_TIMEOUT</rc>
+       <description>Failed to halt OCC GPE0 during RESET operation.</description>
+       <ffdc>CHIP</ffdc>
+-- 
+1.8.2.2
+

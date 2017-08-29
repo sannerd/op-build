@@ -1,0 +1,26 @@
+From 9ddca034f18fc301969582d65f53a9da8d508e54 Mon Sep 17 00:00:00 2001
+From: nagurram-in <nagendra.g@in.ibm.com>
+Date: Tue, 29 Aug 2017 06:57:46 -0500
+Subject: [PATCH v1 1004/1004] Fix for packing the NV keyword struct
+
+Change-Id: Ib6845a5965a3c3356333ae912d2f03ab9d035850
+---
+ src/usr/hdat/hdatutil.H | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/usr/hdat/hdatutil.H b/src/usr/hdat/hdatutil.H
+index a509a1f..3940034 100755
+--- a/src/usr/hdat/hdatutil.H
++++ b/src/usr/hdat/hdatutil.H
+@@ -150,7 +150,7 @@ typedef struct{
+     uint8_t  version;   // Version of the structure = 0x01 start
+     uint8_t  config;    // Configuration specifier : redbud=0x01,sequoia=0x02
+     uint8_t  reserved[249];  // keyword is 255 bytes long
+-}hdatNVKwdStruct_t;
++}__attribute__ ((packed)) hdatNVKwdStruct_t;
+ 
+ enum hdatSMPLinkUsage
+ {
+-- 
+1.8.2.2
+
