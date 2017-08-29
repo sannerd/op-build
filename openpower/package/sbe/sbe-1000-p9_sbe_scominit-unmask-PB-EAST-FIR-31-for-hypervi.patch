@@ -1,0 +1,36 @@
+From 3dc97bf136a0116d56353c20355418d34518faa0 Mon Sep 17 00:00:00 2001
+From: Joe McGill <jmcgill@us.ibm.com>
+Date: Wed, 23 Aug 2017 13:49:26 -0500
+Subject: [PATCH v1] p9_sbe_scominit -- unmask PB EAST FIR 31 for hypervisor TI
+
+Change-Id: I584450ac1d6190c141db29a8f37d40c05f440c04
+CQ: SW396917
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/45058
+Reviewed-by: Zane C. Shelley <zshelle@us.ibm.com>
+Reviewed-by: William G. Hoffa <wghoffa@us.ibm.com>
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: PPE CI <ppe-ci+hostboot@us.ibm.com>
+Reviewed-by: Jennifer A. Stofer <stofer@us.ibm.com>
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/45064
+Reviewed-by: Sachin Gupta <sgupta2m@in.ibm.com>
+---
+ src/import/chips/p9/procedures/hwp/nest/p9_sbe_scominit.C | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/nest/p9_sbe_scominit.C b/src/import/chips/p9/procedures/hwp/nest/p9_sbe_scominit.C
+index 38c6975..e8fc990 100644
+--- a/src/import/chips/p9/procedures/hwp/nest/p9_sbe_scominit.C
++++ b/src/import/chips/p9/procedures/hwp/nest/p9_sbe_scominit.C
+@@ -71,7 +71,7 @@ const uint64_t FBC_WEST_FIR_ACTION1 = 0x0000000000000000ULL;
+ const uint64_t FBC_WEST_FIR_MASK    = 0x0000FFFFC0000000ULL;
+ const uint64_t FBC_EAST_FIR_ACTION0 = 0x0000000000000000ULL;
+ const uint64_t FBC_EAST_FIR_ACTION1 = 0x0000000000000000ULL;
+-const uint64_t FBC_EAST_FIR_MASK    = 0x00FF1FFFC0000000ULL;
++const uint64_t FBC_EAST_FIR_MASK    = 0x00FF1FFEC0000000ULL;
+ 
+ // LPC FIR constants
+ const uint64_t LPC_FIR_ACTION0 = 0x0000000000000000ULL;
+-- 
+1.8.2.2
+
