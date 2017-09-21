@@ -1,0 +1,28 @@
+diff --git a/witherspoon.xml b/witherspoon.xml
+index b9fd487..8491240 100644
+--- a/witherspoon.xml
++++ b/witherspoon.xml
+@@ -14188,7 +14188,7 @@
+ 	</attribute>
+ 	<attribute>
+ 		<id>SUPPORTED_STOP_STATES</id>
+-		<default>0x80000000</default>
++		<default>0xEC100000</default>
+ 	</attribute>
+ 	<attribute>
+ 		<id>SUPPORTS_DYNAMIC_MEM_VOLT</id>
+@@ -14223,6 +14223,14 @@
+ 		<default>OFF</default>
+ 	</attribute>
+ 	<attribute>
++		<id>SYSTEM_VDM_DISABLE</id>
++		<default>0x0</default>
++	</attribute>
++	<attribute>
++		<id>SYSTEM_RESCLK_DISABLE</id>
++		<default>0x0</default>
++	</attribute>
++	<attribute>
+ 		<id>SYS_VFRT_STATIC_DATA_ENABLE</id>
+ 		<default></default>
+ 	</attribute>

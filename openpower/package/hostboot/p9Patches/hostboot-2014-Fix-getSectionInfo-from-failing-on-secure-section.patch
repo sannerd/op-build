@@ -1,0 +1,324 @@
+From 4b2859591b45f9b83c6856c4d242e20fc236ebf0 Mon Sep 17 00:00:00 2001
+From: Stephen Cprek <smcprek@us.ibm.com>
+Date: Mon, 18 Sep 2017 10:25:22 -0500
+Subject: [PATCH v1 2014/2014] Fix getSectionInfo from failing on secure
+ sections
+
+Instead restrict actions if a secure section but let all other
+info to be obtained
+
+Change-Id: I4ae72157f8a956dfe2bccf9a88c8e6332fd3ff6a
+CQ: SW402304
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/46341
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Michael Baiocchi <mbaiocch@us.ibm.com>
+Tested-by: Jenkins OP Build CI <op-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Daniel M. Crowell <dcrowell@us.ibm.com>
+---
+ src/usr/pnor/runtime/rt_pnor.C                     | 87 ++++++++++++---------
+ src/usr/pnor/runtime/rt_pnor.H                     |  2 +
+ .../secureboot/runtime/test/testsecureboot_rt.H    | 89 ++++++++++++----------
+ src/usr/util/runtime/utillidmgr_rt.C               |  3 +
+ 4 files changed, 103 insertions(+), 78 deletions(-)
+
+diff --git a/src/usr/pnor/runtime/rt_pnor.C b/src/usr/pnor/runtime/rt_pnor.C
+index ae187a0..a9c3e4d 100644
+--- a/src/usr/pnor/runtime/rt_pnor.C
++++ b/src/usr/pnor/runtime/rt_pnor.C
+@@ -155,13 +155,15 @@ errlHndl_t RtPnor::getSectionInfo(PNOR::SectionId i_section,
+     errlHndl_t l_err = nullptr;
+     do
+     {
++
++        // TODO: RTC:180063 change this to error out on secure sections as it
++        //                  did previously in HB commit cefc4c
++        // Check if Section is invalid or inhibited from loading at runtime.
+         bool l_inhibited = false;
+-        bool l_secure = false;
+ #ifdef CONFIG_SECUREBOOT
+         l_inhibited = PNOR::isInhibitedSection(i_section);
+-        l_secure =  iv_TOC[i_section].secure;
+ #endif
+-        if (i_section == PNOR::INVALID_SECTION || l_inhibited || l_secure)
++        if (i_section == PNOR::INVALID_SECTION || l_inhibited)
+         {
+             TRACFCOMP(g_trac_pnor, "RtPnor::getSectionInfo: Invalid Section %d",
+                       static_cast<int>(i_section));
+@@ -170,18 +172,13 @@ errlHndl_t RtPnor::getSectionInfo(PNOR::SectionId i_section,
+             {
+                 TRACFCOMP(g_trac_pnor, ERR_MRK"RtPnor::getSectionInfo: attribute overrides inhibited by secureboot");
+             }
+-            else if (l_secure)
+-            {
+-                TRACFCOMP(g_trac_pnor, ERR_MRK"RtPnor::getSectionInfo: secure sections should be loaded via Hostboot Reserved Memory");
+-            }
+ #endif
+             /*@
+              * @errortype
+              * @moduleid    PNOR::MOD_RTPNOR_GETSECTIONINFO
+              * @reasoncode  PNOR::RC_RTPNOR_INVALID_SECTION
+              * @userdata1   PNOR::SectionId
+-             * @userdata2[0:31]   Inhibited by secureboot
+-             * @userdata2[32:63]  Indication of a secure section
++             * @userdata2[0:63]   Inhibited by secureboot
+              * @devdesc     invalid section passed to getSectionInfo  or
+              *              section prohibited by secureboot
+              */
+@@ -189,8 +186,7 @@ errlHndl_t RtPnor::getSectionInfo(PNOR::SectionId i_section,
+                                             PNOR::MOD_RTPNOR_GETSECTIONINFO,
+                                             PNOR::RC_RTPNOR_INVALID_SECTION,
+                                             i_section,
+-                                            TWO_UINT32_TO_UINT64(l_inhibited,
+-                                                                 l_secure),
++                                            l_inhibited,
+                                             true);
+             break;
+         }
+@@ -200,7 +196,7 @@ errlHndl_t RtPnor::getSectionInfo(PNOR::SectionId i_section,
+         if (l_sizeBytes == 0)
+         {
+             TRACFCOMP(g_trac_pnor,"RtPnor::getSectionInfo: Section %d"
+-                    " size is 0", (int)i_section);
++                    " size is 0", static_cast<int>(i_section));
+             /*@
+              * @errortype
+              * @moduleid    PNOR::MOD_RTPNOR_GETSECTIONINFO
+@@ -219,44 +215,58 @@ errlHndl_t RtPnor::getSectionInfo(PNOR::SectionId i_section,
+         bool l_ecc = (iv_TOC[i_section].integrity&FFS_INTEG_ECC_PROTECT) ?
+                       true : false;
+ 
+-        void* l_pWorking = nullptr;
+-        void* l_pClean   = nullptr;
+-
+-        //find the section in the map first
+-        if(iv_pnorMap.find(i_section) != iv_pnorMap.end())
++        // TODO: RTC:180063 change this to error out on secure sections as it
++        //                  did previously in HB commit cefc4c
++        // Only do mapping and read from device to set vaddr if not a secure
++        // section. Secure sections should load from HB resv memory and will set
++        // vaddr to 0
++        if (iv_TOC[i_section].secure)
+         {
+-            //get the addresses from the map
+-            PnorAddrPair_t l_addrPair = iv_pnorMap[i_section];
+-            l_pWorking = l_addrPair.first;
+-            l_pClean   = l_addrPair.second;
++            TRACFCOMP(g_trac_pnor,"RtPnor::getSectionInfo: Warning> Section is secure, so must be loaded from Hb resv memory. vaddr will be set to 0");
++            o_info.vaddr = 0;
+         }
+         else
+         {
+-            //malloc twice -- one working copy and one clean copy
+-            //So, we can diff and write only the dirty bytes
+-            l_pWorking = malloc(l_sizeBytes);
+-            l_pClean   = malloc(l_sizeBytes);
+-
+-            //offset = 0 : read the entire section
+-            l_err = readFromDevice(iv_masterProcId, i_section, 0, l_sizeBytes,
+-                                   l_ecc, l_pWorking);
+-            if(l_err)
++            void* l_pWorking = nullptr;
++            void* l_pClean   = nullptr;
++
++            //find the section in the map first
++            if(iv_pnorMap.find(i_section) != iv_pnorMap.end())
+             {
+-                TRACFCOMP(g_trac_pnor, "RtPnor::getSectionInfo:readFromDevice"
+-                      " failed");
+-                break;
++                //get the addresses from the map
++                PnorAddrPair_t l_addrPair = iv_pnorMap[i_section];
++                l_pWorking = l_addrPair.first;
++                l_pClean   = l_addrPair.second;
+             }
++            else
++            {
++                //malloc twice -- one working copy and one clean copy
++                //So, we can diff and write only the dirty bytes
++                l_pWorking = malloc(l_sizeBytes);
++                l_pClean   = malloc(l_sizeBytes);
++
++                //offset = 0 : read the entire section
++                l_err = readFromDevice(iv_masterProcId, i_section, 0, l_sizeBytes,
++                                       l_ecc, l_pWorking);
++                if(l_err)
++                {
++                    TRACFCOMP(g_trac_pnor, "RtPnor::getSectionInfo:readFromDevice"
++                          " failed");
++                    break;
++                }
+ 
+-            //copy data to another pointer to save a clean copy of data
+-            memcpy(l_pClean, l_pWorking, l_sizeBytes);
++                //copy data to another pointer to save a clean copy of data
++                memcpy(l_pClean, l_pWorking, l_sizeBytes);
+ 
+-            //save it in the map
+-            iv_pnorMap [i_section] = PnorAddrPair_t(l_pWorking, l_pClean);
++                //save it in the map
++                iv_pnorMap [i_section] = PnorAddrPair_t(l_pWorking, l_pClean);
++            }
++            o_info.vaddr = reinterpret_cast<uint64_t>(l_pWorking);
+         }
++
+         //return the data in the struct
+         o_info.id           = i_section;
+         o_info.name         = SectionIdToString(i_section);
+-        o_info.vaddr        = (uint64_t)l_pWorking;
+         o_info.flashAddr    = iv_TOC[i_section].flashAddr;
+         o_info.size         = l_sizeBytes;
+         o_info.eccProtected = l_ecc;
+@@ -264,6 +274,7 @@ errlHndl_t RtPnor::getSectionInfo(PNOR::SectionId i_section,
+             (iv_TOC[i_section].version & FFS_VERS_SHA512) ? true : false;
+         o_info.sha512perEC  =
+            (iv_TOC[i_section].version & FFS_VERS_SHA512_PER_EC) ? true : false;
++        o_info.secure = iv_TOC[i_section].secure;
+     } while (0);
+ 
+     TRACFCOMP(g_trac_pnor, EXIT_MRK"RtPnor::getSectionInfo");
+diff --git a/src/usr/pnor/runtime/rt_pnor.H b/src/usr/pnor/runtime/rt_pnor.H
+index 6af1119..b2433a1 100644
+--- a/src/usr/pnor/runtime/rt_pnor.H
++++ b/src/usr/pnor/runtime/rt_pnor.H
+@@ -50,6 +50,8 @@ class RtPnor
+        *
+        * @param[in] i_section   PNOR section
+        * @param[out] o_info     Location and size information
++       *                        NOTE: vaddr is 0 if section is secure.
++       *                              It should be loaded from Hb resv memory
+        *
+        * @return errlHndl_t     Error log if request was invalid
+        */
+diff --git a/src/usr/secureboot/runtime/test/testsecureboot_rt.H b/src/usr/secureboot/runtime/test/testsecureboot_rt.H
+index 6d63b4f..33ca4cd 100644
+--- a/src/usr/secureboot/runtime/test/testsecureboot_rt.H
++++ b/src/usr/secureboot/runtime/test/testsecureboot_rt.H
+@@ -160,62 +160,71 @@ class SecurebootRtTestSuite: public CxxTest::TestSuite
+         SB_EXIT("SecurebootRtTestSuite::testBaseInterfaces");
+     }
+ 
+-    void testAccessSecurePnorSection()
++    /**
++     * @brief Helper to test case that runs getSectionInfo scenarios and checks
++     *        for desired results.
++     * @param[in] i_id, Pnor Section ID
++     * @param[in] i_secure, Indicates if section is expected to be secure or not
++     *
++     * @return N/A
++     */
++    void runAccessSecurePnorTest(PNOR::SectionId i_id, bool i_secure)
+     {
+-        SB_ENTER("testAccessSecurePnorSection");
+-
+-        errlHndl_t l_err = nullptr;
+-        PNOR::SectionId l_id = PNOR::OCC;
++        errlHndl_t l_errl = nullptr;
+         PNOR::SectionInfo_t l_info;
+ 
+-        // Ensure we cannot read secure sections from PNOR at Runtime
+-        l_err = PNOR::getSectionInfo(l_id, l_info);
+-        if(l_err)
+-        {
+-            if (l_err->reasonCode() == PNOR::RC_RTPNOR_INVALID_SECTION)
+-            {
+-                delete l_err;
+-                l_err = nullptr;
+-            }
+-            else
+-            {
+-                TS_FAIL("testAccessSecurePnorSection: unexpected reason code for Secure Section %s. Expected RC 0x%.4X Actual RC 0x%.4X",
+-                        PNOR::SectionIdToString(l_id),
+-                        PNOR::RC_RTPNOR_INVALID_SECTION,
+-                        l_err->reasonCode());
+-                errlCommit(l_err, SECURE_COMP_ID);
+-            }
+-        }
+-        else
++        l_errl = PNOR::getSectionInfo(i_id, l_info);
++        if(l_errl)
+         {
+-            TS_FAIL("testAccessSecurePnorSection: Did not catch illegal PNOR access of Secure Section %s",
+-                        PNOR::SectionIdToString(l_id));
++            TS_FAIL("testAccessSecurePnorSection: Failed for section %s",
++                        PNOR::SectionIdToString(i_id));
++            errlCommit(l_errl, SECURE_COMP_ID);
+         }
+ 
+-        l_id = PNOR::HB_EXT_CODE;
+-        l_err = PNOR::getSectionInfo(l_id, l_info);
+-        if(l_err)
++        // TODO: RTC:180063 change this test case back to how it was before
++        //                  having secure sections return vaddr = 0
++        //                  previously in HB commit cefc4c
++        // If we expect the section to be secure, make sure it returns secure
++        // and a vaddr of 0
++        if (i_secure)
+         {
+-            if (l_err->reasonCode() == PNOR::RC_RTPNOR_INVALID_SECTION)
++            if (l_info.secure != 1)
+             {
+-                delete l_err;
+-                l_err = nullptr;
++                TS_FAIL("testAccessSecurePnorSection: Did not return %s as a secure section",
++                            PNOR::SectionIdToString(i_id));
+             }
+-            else
++            else if (l_info.vaddr != 0)
+             {
+-                TS_FAIL("testAccessSecurePnorSection: unexpected reason code for Secure Section %s. Expected RC 0x%.4X Actual RC 0x%.4X",
+-                        PNOR::SectionIdToString(l_id),
+-                        PNOR::RC_RTPNOR_INVALID_SECTION,
+-                        l_err->reasonCode());
+-                errlCommit(l_err, SECURE_COMP_ID);
++                TS_FAIL("testAccessSecurePnorSection: Did not return a vaddr of 0 for secure section %s",
++                            PNOR::SectionIdToString(i_id));
+             }
+         }
++        // If we expect the section to be secure, make sure it returns secure
++        // and a vaddr of 0
+         else
+         {
+-            TS_FAIL("testAccessSecurePnorSection: Did not catch illegal PNOR access of Secure Section %s",
+-                        PNOR::SectionIdToString(l_id));
++            if (l_info.vaddr == 0)
++            {
++                TS_FAIL("testAccessSecurePnorSection: Did not return a vaddr of non-zero for a non-secure section %s",
++                            PNOR::SectionIdToString(i_id));
++            }
+         }
++    }
++
++    // TODO: RTC:180063 change this test case back to how it was before
++    //                  having secure sections return vaddr = 0 previously
++    //                  in HB commit cefc4c
++    void testAccessSecurePnorSection()
++    {
++        SB_ENTER("testAccessSecurePnorSection");
++
++
++        // Ensure we get a vaddr of 0 at Runtime
++        runAccessSecurePnorTest(PNOR::OCC, true);
++        runAccessSecurePnorTest(PNOR::HB_EXT_CODE, true);
+ 
++        // Ensure we get a vaddr of  at Runtime
++        runAccessSecurePnorTest(PNOR::TEST, false);
+ 
+         SB_EXIT("testAccessSecurePnorSection");
+     }
+diff --git a/src/usr/util/runtime/utillidmgr_rt.C b/src/usr/util/runtime/utillidmgr_rt.C
+index 721b803..f1cc860 100644
+--- a/src/usr/util/runtime/utillidmgr_rt.C
++++ b/src/usr/util/runtime/utillidmgr_rt.C
+@@ -154,6 +154,9 @@ errlHndl_t UtilLidMgr::loadLid()
+             {
+                 UTIL_FT("UtilLidMgr::loadLid - resv mem section found");
+                 // If section is secure, adjust size and buffer pointer
++                // TODO: RTC:180063 if getSectionInfo is modified to not support
++                //                  secure sections, then need a different
++                //                  method.
+                 if(iv_lidPnorInfo.secure)
+                 {
+                     UTIL_FT("UtilLidMgr::loadLid - resv mem section is secure");
+-- 
+1.8.2.2
+

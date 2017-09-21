@@ -1,0 +1,65 @@
+From dd70141027c17be37444097eb6500de441b104c6 Mon Sep 17 00:00:00 2001
+From: Zane Shelley <zshelle@us.ibm.com>
+Date: Tue, 19 Sep 2017 16:53:07 -0500
+Subject: [PATCH v1 3001/3001] PRD: Nimbus DD2.0.1 workaround for
+ nce/tce/mpe/impe
+
+Change-Id: Idaba300077e7a10206c52301231d0e384d89c706
+CQ: SW402608
+---
+ src/usr/diag/prdf/common/plat/mem/prdfMemEccAnalysis.C | 5 ++++-
+ src/usr/diag/prdf/common/plat/mem/prdfMemThresholds.C  | 5 ++++-
+ src/usr/diag/prdf/plat/mem/prdfMemTdCtlr_rt.C          | 5 ++++-
+ 3 files changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/src/usr/diag/prdf/common/plat/mem/prdfMemEccAnalysis.C b/src/usr/diag/prdf/common/plat/mem/prdfMemEccAnalysis.C
+index 02dd411..9fd6324 100644
+--- a/src/usr/diag/prdf/common/plat/mem/prdfMemEccAnalysis.C
++++ b/src/usr/diag/prdf/common/plat/mem/prdfMemEccAnalysis.C
+@@ -469,7 +469,10 @@ uint32_t handleMemCe( ExtensibleChip * i_chip, const MemAddr & i_addr,
+     uint32_t ceTableRc = db->iv_ceTable.addEntry( i_addr, i_symbol, i_isHard );
+ 
+     // Check MNFG thresholds, if needed.
+-    if ( mfgMode() )
++    // NOTE: We will only check the MNFG thresholds if DRAM repairs is disabled.
++    //       This is for a Nimbus DD2.0.1 workaround, but the change will be
++    //       permanent for all P9 DD levels.
++    if ( areDramRepairsDisabled() )
+     {
+         if ( 0 != (MemCeTable<T>::MNFG_TH_DRAM & ceTableRc) )
+         {
+diff --git a/src/usr/diag/prdf/common/plat/mem/prdfMemThresholds.C b/src/usr/diag/prdf/common/plat/mem/prdfMemThresholds.C
+index fcb01f4..3142df3 100755
+--- a/src/usr/diag/prdf/common/plat/mem/prdfMemThresholds.C
++++ b/src/usr/diag/prdf/common/plat/mem/prdfMemThresholds.C
+@@ -121,7 +121,10 @@ ThresholdResolution::ThresholdPolicy getImpeTh()
+ {
+     uint32_t th = MCA_IMPE_NON_MNFG_TH;
+ 
+-    if ( mfgMode() )
++    // NOTE: We will only use the MNFG threshold if DRAM repairs is disabled.
++    //       This is for a Nimbus DD2.0.1 workaround, but the change will be
++    //       permanent for all P9 DD levels.
++    if ( areDramRepairsDisabled() )
+     {
+         th = MfgThresholdMgr::getInstance()->
+                            getThreshold( ATTR_MNFG_TH_MEMORY_IMPES );
+diff --git a/src/usr/diag/prdf/plat/mem/prdfMemTdCtlr_rt.C b/src/usr/diag/prdf/plat/mem/prdfMemTdCtlr_rt.C
+index 6637c2b..c6215ba 100644
+--- a/src/usr/diag/prdf/plat/mem/prdfMemTdCtlr_rt.C
++++ b/src/usr/diag/prdf/plat/mem/prdfMemTdCtlr_rt.C
+@@ -652,7 +652,10 @@ uint32_t __checkEcc( ExtensibleChip * i_chip, TdQueue & io_queue,
+             }
+ 
+             // Any hard CEs in MNFG should be immediately reported.
+-            if ( mfgMode() )
++            // NOTE: We will only use the MNFG thresholds if DRAM repairs is
++            //       disabled. This is for a Nimbus DD2.0.1 workaround, but the
++            //       change will be permanent for all P9 DD levels.
++            if ( areDramRepairsDisabled() )
+             {
+                 io_sc.service_data->setSignature( huid, PRDFSIG_MaintHARD_CTE );
+                 io_sc.service_data->setServiceCall();
+-- 
+1.8.2.2
+

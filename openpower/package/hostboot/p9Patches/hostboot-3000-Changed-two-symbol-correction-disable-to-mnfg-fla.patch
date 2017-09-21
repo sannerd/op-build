@@ -1,0 +1,30 @@
+From 45ba578341b3989269749a8579d547d328eac64b Mon Sep 17 00:00:00 2001
+From: Matthew Hickman <Matthew.Hickman@ibm.com>
+Date: Wed, 20 Sep 2017 15:22:51 -0500
+Subject: [PATCH v1 3000/3001] Changed two symbol correction disable to mnfg
+ flag DISABLE_DRAM_REPAIRS
+
+Change-Id: I832df60249fc5de44a48cfd3185b4255f967ee34
+---
+ src/import/chips/p9/procedures/hwp/memory/lib/mc/port.H | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/mc/port.H b/src/import/chips/p9/procedures/hwp/memory/lib/mc/port.H
+index bcea1e3..876a839 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/mc/port.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/mc/port.H
+@@ -385,9 +385,9 @@ fapi2::ReturnCode setup_read_pointer_delay (const fapi2::Target<T>& i_target)
+     FAPI_TRY( mss::read_recr_register(i_target, l_data ), "%s: Failed read_recr_register", mss::c_str(i_target));
+     mss::set_read_pointer_delay(l_data, mss::ON);
+ 
+-    // Check for manufacturing threshold and disable TCE correction
++    // Check for manufacturing disable dram repair flag to disable TCE correction
+     FAPI_TRY( mss::mnfg_flags(mnfg_flag), "%s: Failed mnfg_flags check", mss::c_str(i_target) );
+-    l_state = (mnfg_flag == fapi2::ENUM_ATTR_MNFG_FLAGS_MNFG_THRESHOLDS) ? mss::OFF : mss::ON;
++    l_state = (mnfg_flag == fapi2::ENUM_ATTR_MNFG_FLAGS_MNFG_DISABLE_DRAM_REPAIRS ) ? mss::OFF : mss::ON;
+     mss::set_tce_correction(l_data, l_state);
+ 
+     FAPI_TRY( mss::write_recr_register(i_target, l_data), "%s: Failed write_recr_register", mss::c_str(i_target));
+-- 
+1.8.2.2
+
