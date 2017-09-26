@@ -1,0 +1,403 @@
+From d33a3223bba15eba80c575830ff02c9ce45a0e42 Mon Sep 17 00:00:00 2001
+From: Jacob Harvey <jlharvey@us.ibm.com>
+Date: Tue, 19 Sep 2017 09:57:54 -0500
+Subject: [PATCH v1 4003/4003] Increment red_waterfall for low vdn fix
+
+Change-Id: Iaa5dbf94fe223cdfef7ebbfe8598f98f5472c956
+---
+ .../memory/lib/mss_attribute_accessors_manual.H    |  23 +++++
+ .../p9/procedures/hwp/memory/lib/phy/ddr_phy.C     |  36 ++++++--
+ .../chips/p9/procedures/hwp/memory/lib/phy/dp16.H  |  51 +++++++++++
+ .../procedures/hwp/memory/lib/shared/mss_const.H   |   2 +-
+ .../hwp/memory/lib/workarounds/dp16_workarounds.C  | 101 +++++++++++++++++++++
+ .../hwp/memory/lib/workarounds/dp16_workarounds.H  |  45 +++++++++
+ .../xml/attribute_info/chip_ec_attributes.xml      |  20 +++-
+ 7 files changed, 270 insertions(+), 8 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H b/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H
+index 89a37af..e1a0a31 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/mss_attribute_accessors_manual.H
+@@ -283,6 +283,29 @@ fapi_try_exit:
+ }
+ 
+ ///
++/// @brief ATTR_CHIP_EC_FEATURE_MSS_RED_WATERFALL_ADJUST getter
++/// @tparam T the fapi2 target type of the target
++/// @param[in] const ref to the target
++/// @return bool true iff feature is enabled
++///
++template< fapi2::TargetType T >
++inline bool chip_ec_feature_red_waterfall_adjust(const fapi2::Target<T>& i_target)
++{
++    const auto l_chip = mss::find_target<fapi2::TARGET_TYPE_PROC_CHIP>(i_target);
++    uint8_t l_value = 0;
++
++    FAPI_TRY( FAPI_ATTR_GET(fapi2::ATTR_CHIP_EC_FEATURE_MSS_RED_WATERFALL_ADJUST, l_chip, l_value) );
++
++    return (l_value != 0);
++
++fapi_try_exit:
++    FAPI_ERR("failed accessing ATTR_CHIP_EC_FEATURE_MSS_RED_WATERFALL_ADJUST: 0x%lx (target: %s)",
++             uint64_t(fapi2::current_err), mss::c_str(i_target));
++    fapi2::Assert(false);
++    return false;
++}
++
++///
+ /// @brief ATTR_CHIP_EC_FEATURE_MSS_ENABLE_HW_VREF_CAL getter
+ /// @tparam T the fapi2 target type of the target
+ /// @param[in] const ref to the target
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C b/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C
+index 05286dc..86a8621 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/phy/ddr_phy.C
+@@ -1284,8 +1284,8 @@ fapi2::ReturnCode setup_and_execute_cal( const fapi2::Target<fapi2::TARGET_TYPE_
+                  "%s Failed to run dqs align workaround on rp %d", mss::c_str(i_target), i_rp);
+     }
+ 
+-    // Run cal steps between RDCLK_ALIGN and RD_CTR if any are selected - note RDCLK_ALIGN takes place after WR_LEVEL
+-    if (i_cal_steps_enabled.getBit<mss::cal_steps::RDCLK_ALIGN, mss::cal_steps::RDCLK_ALIGN_TO_RD_CTR_LEN>())
++    // Run cal step READ CLOCK ALIGN
++    if (i_cal_steps_enabled.getBit<mss::cal_steps::RDCLK_ALIGN>())
+     {
+         // Turn off refresh
+         FAPI_TRY( mss::workarounds::dqs_align::turn_off_refresh(i_target) );
+@@ -1293,11 +1293,35 @@ fapi2::ReturnCode setup_and_execute_cal( const fapi2::Target<fapi2::TARGET_TYPE_
+         // Sets up the cal steps in the buffer
+         fapi2::buffer<uint32_t> l_steps_to_execute;
+ 
+-        i_cal_steps_enabled.extract<mss::cal_steps::RDCLK_ALIGN,
+-                                    mss::cal_steps::RDCLK_ALIGN_TO_RD_CTR_LEN,
+-                                    mss::cal_steps::RDCLK_ALIGN>(l_steps_to_execute);
++        l_steps_to_execute.setBit<mss::cal_steps::RDCLK_ALIGN>();
+ 
+-        FAPI_INF("%s Running rd_clk align through read centering vref on RP%d 0x%08x", mss::c_str(i_target), i_rp,
++        FAPI_INF("%s Running rd_clk align on RP%d 0x%08x", mss::c_str(i_target), i_rp,
++                 l_steps_to_execute);
++
++        // Undertake the calibration steps
++        FAPI_TRY( execute_cal_steps_helper(i_target, i_rp, l_steps_to_execute, i_abort_on_error) );
++
++        // Run the red_waterfall workaround for low VDN sensitivity
++        // Increments the waterfall forward by one
++        FAPI_TRY( mss::workarounds::dp16::fix_red_waterfall_gate( i_target, i_rp) );
++
++        // Turn refresh back on
++        FAPI_TRY( mss::workarounds::dqs_align::turn_on_refresh(i_target) );
++    }
++
++    if(i_cal_steps_enabled.getBit<mss::cal_steps::READ_CTR_2D_VREF, mss::cal_steps::READ_VREF_TO_READ_CTR_LEN>())
++    {
++        // Turn off refresh
++        FAPI_TRY( mss::workarounds::dqs_align::turn_off_refresh(i_target) );
++
++        // Sets up the cal steps in the buffer
++        fapi2::buffer<uint32_t> l_steps_to_execute;
++
++        l_steps_to_execute.writeBit<mss::cal_steps::READ_CTR_2D_VREF>
++        (i_cal_steps_enabled.getBit<mss::cal_steps::READ_CTR_2D_VREF>());
++        l_steps_to_execute.writeBit<mss::cal_steps::READ_CTR>(i_cal_steps_enabled.getBit<mss::cal_steps::READ_CTR>());
++
++        FAPI_INF("%s Running read centering vref through read centering on RP%d 0x%08x", mss::c_str(i_target), i_rp,
+                  l_steps_to_execute);
+ 
+         // Undertake the calibration steps
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/phy/dp16.H b/src/import/chips/p9/procedures/hwp/memory/lib/phy/dp16.H
+index e785f7d..295c698 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/phy/dp16.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/phy/dp16.H
+@@ -223,6 +223,23 @@ class dp16Traits<fapi2::TARGET_TYPE_MCA>
+             MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_0_01_RDCLK_SELECT3,
+         };
+ 
++        constexpr static const uint64_t RED_WATERFALL_BIT_POS[NUM_QUAD_PER_DP16] =
++        {
++            MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_0_01_DQSCLK_SELECT0,
++            MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_0_01_DQSCLK_SELECT1,
++            MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_0_01_DQSCLK_SELECT2,
++            MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_0_01_DQSCLK_SELECT3,
++        };
++
++        // READ_DELAY registers, indexed by rank_pair
++        static const std::vector< std::vector< uint64_t > > READ_DELAY_REG;
++
++        // READ_EYE_SIZE registers, indexed by rank_pair
++        static const std::vector< std::vector< uint64_t > > READ_EYE_SIZE_REG;
++
++        // RDCLK delay registers, indexed by rank_pair
++        static const std::vector< std::vector< uint64_t > > RDCLK_REG;
++
+         enum
+         {
+             // Name changes for dd2 to P9N2_MCA_DDRPHY_DP16_RX_CONFIG0_P0_0
+@@ -2020,6 +2037,24 @@ inline uint64_t get_blue_waterfall( const fapi2::buffer<uint64_t>& i_data )
+ }
+ 
+ ///
++/// @brief Get the red waterfall for the given quad
++/// @tparam uint64_t QUAD - which quad to access
++/// @tparam T fapi2 Target Type - defaults to TARGET_TYPE_MCA
++/// @tparam TT traits type defaults to dp16Traits<T>
++/// @param[in] i_data the value of the register
++/// @return value of the red waterfall
++///
++template< uint64_t QUAD, fapi2::TargetType T = fapi2::TARGET_TYPE_MCA, typename TT = dp16Traits<T> >
++inline uint64_t get_red_waterfall( const fapi2::buffer<uint64_t>& i_data )
++{
++
++    static_assert(QUAD < TT::NUM_QUAD_PER_DP16, "Inserted quad value is not less than the maximum value");
++    uint64_t l_waterfall = 0;
++    i_data.extractToRight<TT::RED_WATERFALL_BIT_POS[QUAD], TT::WATERFALL_LEN>(l_waterfall);
++    return l_waterfall;
++}
++
++///
+ /// @brief Get the gate delay for the given quad
+ /// @tparam uint64_t QUAD - which quad to access
+ /// @tparam T fapi2 Target Type - defaults to TARGET_TYPE_MCA
+@@ -2054,6 +2089,22 @@ inline void set_blue_waterfall( fapi2::buffer<uint64_t>& io_data, const uint64_t
+ }
+ 
+ ///
++/// @brief Set the red waterfall for the given quad
++/// @tparam uint64_t QUAD - which quad to access
++/// @tparam T fapi2 Target Type - defaults to TARGET_TYPE_MCA
++/// @tparam TT traits type defaults to dp16Traits<T>
++/// @param[in,out] io_data the value of the register
++/// @param[in] value of the red waterfall
++///
++template< uint64_t QUAD, fapi2::TargetType T = fapi2::TARGET_TYPE_MCA, typename TT = dp16Traits<T> >
++inline void set_red_waterfall( fapi2::buffer<uint64_t>& io_data, const uint64_t i_waterfall )
++{
++
++    static_assert(QUAD < TT::NUM_QUAD_PER_DP16, "QUAD value is not less than the maximum value");
++    io_data.insertFromRight<TT::RED_WATERFALL_BIT_POS[QUAD], TT::WATERFALL_LEN>(i_waterfall);
++}
++
++///
+ /// @brief Set the gate delay for the given quad
+ /// @tparam uint64_t QUAD - which quad to access
+ /// @tparam T fapi2 Target Type - defaults to TARGET_TYPE_MCA
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/shared/mss_const.H b/src/import/chips/p9/procedures/hwp/memory/lib/shared/mss_const.H
+index 4548928..8afe2ff 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/shared/mss_const.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/shared/mss_const.H
+@@ -225,7 +225,7 @@ enum cal_steps : uint64_t
+ 
+     INITIAL_PAT_WR_TO_RD_CTR_LEN = inclusive_range(INITIAL_PAT_WR, READ_CTR),
+     WR_VREF_TO_COARSE_RD_LEN = inclusive_range(WRITE_CTR_2D_VREF, COARSE_RD),
+-    RDCLK_ALIGN_TO_RD_CTR_LEN = inclusive_range(RDCLK_ALIGN, READ_CTR),
++    READ_VREF_TO_READ_CTR_LEN = inclusive_range(READ_CTR_2D_VREF, READ_CTR),
+     // In this case, we just want to clear everything prior to WR 2D VREF, inclusive range also kills the WR VREF bit
+     DRAM_ZQCAL_UP_TO_WRITE_CTR_2D_VREF = WRITE_CTR_2D_VREF,
+ };
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C
+index ddd73fa..95dbe26 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.C
+@@ -298,6 +298,107 @@ fapi_try_exit:
+ }
+ 
+ ///
++/// @brief Fixes red waterfall values in a port
++/// @param[in] i_target - the target to operate on
++/// @param[in] i_rp - the rank pair to change
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++///
++fapi2::ReturnCode fix_red_waterfall_gate( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target, const uint64_t i_rp)
++{
++    // Checks if the workaround needs to be run
++    const bool l_attr_value = mss::chip_ec_feature_red_waterfall_adjust(i_target);
++
++    if(!l_attr_value)
++    {
++        FAPI_DBG("Skipping running fix_red_waterfall_gate %s", mss::c_str(i_target) );
++        return fapi2::FAPI2_RC_SUCCESS;
++    }
++
++    // Loops through the first 4 DP's as the last DP is a DP08 so we only need to do 2 quads
++    const std::vector<std::vector<uint64_t>> l_dp16_registers =
++    {
++        {
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_0},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_1},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_2},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_3},
++        },
++        {
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR1_P0_0},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR1_P0_1},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR1_P0_2},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR1_P0_3},
++        },
++        {
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR2_P0_0},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR2_P0_1},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR2_P0_2},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR2_P0_3},
++        },
++        {
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR3_P0_0},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR3_P0_1},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR3_P0_2},
++            {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR3_P0_3},
++        }
++    };
++    const std::vector<uint64_t> l_dp08_registers =
++    {
++        {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR0_P0_4},
++        {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR1_P0_4},
++        {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR2_P0_4},
++        {MCA_DDRPHY_DP16_DQS_RD_PHASE_SELECT_RANK_PAIR3_P0_4},
++    };
++
++    // Gets the number of primary ranks to loop through
++    std::vector<uint64_t> l_rank_pairs;
++    FAPI_TRY(mss::rank::get_rank_pairs(i_target, l_rank_pairs));
++
++    FAPI_INF("Changing red waterfalls for %s", mss::c_str(i_target));
++
++    // Loops through all DP16s
++    for(const auto& l_reg : l_dp16_registers[i_rp])
++    {
++        fapi2::buffer<uint64_t> l_waterfall;
++
++        // Getscoms
++        FAPI_TRY(mss::getScom(i_target, l_reg, l_waterfall), "%s Failed to getScom from 0x%016lx",
++                 mss::c_str(i_target), l_reg);
++
++        // Updates the data for all quads
++        update_red_waterfall_for_quad<0>(l_waterfall);
++        update_red_waterfall_for_quad<1>(l_waterfall);
++        update_red_waterfall_for_quad<2>(l_waterfall);
++        update_red_waterfall_for_quad<3>(l_waterfall);
++
++        // Putscoms
++        FAPI_TRY(mss::putScom(i_target, l_reg, l_waterfall), "%s Failed to putScom to 0x%016lx",
++                 mss::c_str(i_target), l_reg);
++    }
++
++    // Now for the odd man out - the DP08, as it only has two quads.
++    // Note: We are not modifying the non-existant quads, as changing values in the non-existant DP08 has caused FIRs
++    {
++        fapi2::buffer<uint64_t> l_waterfall;
++
++        // Getscoms
++        FAPI_TRY(mss::getScom(i_target, l_dp08_registers[i_rp], l_waterfall), "%s Failed to getScom from 0x%016lx",
++                 mss::c_str(i_target), l_dp08_registers[i_rp]);
++
++        // Updates the data for all quads
++        update_red_waterfall_for_quad<0>(l_waterfall);
++        update_red_waterfall_for_quad<1>(l_waterfall);
++
++        // Putscoms
++        FAPI_TRY(mss::putScom(i_target, l_dp08_registers[i_rp], l_waterfall), "%s Failed to putScom to 0x%016lx",
++                 mss::c_str(i_target), l_dp08_registers[i_rp]);
++    }
++
++fapi_try_exit:
++    return fapi2::current_err;
++}
++
++///
+ /// @brief Fixes blue waterfall values in a port
+ /// @param[in] i_target - the target to operate on
+ /// @param[in] i_always_run - ignores the attribute and always run - default = false
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H
+index 8fdb47f..2c9d387 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/workarounds/dp16_workarounds.H
+@@ -197,6 +197,51 @@ fapi2::ReturnCode fix_blue_waterfall_gate( const fapi2::Target<fapi2::TARGET_TYP
+         const bool i_always_run = false );
+ 
+ ///
++/// @brief Fixes red waterfall values in a port
++/// @param[in] i_target - the target to operate on
++/// @param[in] i_rp, the rank pair that's being trained
++/// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
++///
++fapi2::ReturnCode fix_red_waterfall_gate( const fapi2::Target<fapi2::TARGET_TYPE_MCA>& i_target, const uint64_t i_rp);
++
++
++///
++/// @brief Moves the red waterfall forward by one
++/// @param[in,out] io_red_waterfall - the red waterfall value
++///
++inline void update_red_waterfall(uint64_t& io_red_waterfall)
++{
++    constexpr uint64_t MAX_RED_WATERFALL_VALUE = 4;
++
++    if (++io_red_waterfall >= MAX_RED_WATERFALL_VALUE)
++    {
++        io_red_waterfall = 0;
++    }
++}
++
++///
++/// @brief Gets the red waterfall and gate delay values for a given DP quad
++/// @tparam uint64_t QUAD - which quad to access
++/// @param[in,out] io_waterfall_reg   - waterfall register data
++///
++template< uint64_t QUAD>
++void update_red_waterfall_for_quad(fapi2::buffer<uint64_t>& io_waterfall_reg)
++{
++    constexpr uint64_t NUM_QUAD = 4;
++    // Valid quad values are from 0-3, exit if the requested value is greater
++    static_assert(QUAD < NUM_QUAD, "Inserted quad value is greater than or equal to 4");
++
++    // Gets the data for this Quad
++    auto l_red_waterfall = mss::dp16::get_red_waterfall<QUAD>(io_waterfall_reg);
++
++    // Updates the waterfall and gate delay
++    update_red_waterfall(l_red_waterfall);
++
++    // Sets the data back into the register
++    mss::dp16::set_red_waterfall<QUAD>(io_waterfall_reg, l_red_waterfall);
++}
++
++///
+ /// @brief Modifies HW calibration results based upon workarounds
+ /// @param[in]  i_target - the target to operate on
+ /// @return fapi2::ReturnCode FAPI2_RC_SUCCESS if ok
+diff --git a/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml b/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
+index 556f03d..d4ca642 100644
+--- a/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
++++ b/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
+@@ -4395,6 +4395,24 @@
+   </attribute>
+ 
+   <attribute>
++    <id>ATTR_CHIP_EC_FEATURE_MSS_RED_WATERFALL_ADJUST</id>
++    <targetType>TARGET_TYPE_PROC_CHIP</targetType>
++    <description>
++        In DD2.** Nimbus, We adjust the red waterfall to account for low VDN settings.
++        We move the waterfall forward by one
++    </description>
++    <chipEcFeature>
++      <chip>
++        <name>ENUM_ATTR_NAME_NIMBUS</name>
++        <ec>
++          <value>0x20</value>
++          <test>GREATER_THAN_OR_EQUAL</test>
++        </ec>
++      </chip>
++    </chipEcFeature>
++  </attribute>
++
++  <attribute>
+     <id>ATTR_CHIP_EC_FEATURE_MSS_CHECK_DIABLE_RD_VREF_CAL_VREFSENSE</id>
+     <targetType>TARGET_TYPE_PROC_CHIP</targetType>
+     <description>
+@@ -4653,7 +4671,7 @@
+       </chip>
+     </chipEcFeature>
+   </attribute>
+-  
++
+   <attribute>
+     <id>ATTR_CHIP_EC_FEATURE_HW413362_P9UDD11_ASYNC</id>
+     <targetType>TARGET_TYPE_PROC_CHIP</targetType>
+-- 
+1.8.2.2
+

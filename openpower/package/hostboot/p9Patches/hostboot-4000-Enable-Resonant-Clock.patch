@@ -1,0 +1,31 @@
+From 5562dc1be14f79d3df7a86563eddaee0b7ed05ac Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Mon, 25 Sep 2017 10:32:59 -0500
+Subject: [PATCH v1 4000/4003] Enable Resonant Clock
+
+ -Was manually disabled in Hostboot due to issue
+ -This commit removes the manual disable and allows XML to control
+
+Change-Id: I991fd7619e957f0c663a025960ed447d9bbde7bf
+---
+ src/usr/isteps/istep15/host_build_stop_image.C | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/src/usr/isteps/istep15/host_build_stop_image.C b/src/usr/isteps/istep15/host_build_stop_image.C
+index 720f0f3..1a3d0e0 100644
+--- a/src/usr/isteps/istep15/host_build_stop_image.C
++++ b/src/usr/isteps/istep15/host_build_stop_image.C
+@@ -382,10 +382,6 @@ void* host_build_stop_image (void *io_pArgs)
+         TARGETING::targetService().getTopLevelTarget(l_sys);
+         assert( l_sys != NULL );
+ 
+-        // @todo RTC:176627 Remove workaround setting SYSTEM_RESCLK_DISABLE
+-        l_sys->setAttr<TARGETING::ATTR_SYSTEM_RESCLK_DISABLE>(0x1);
+-        // end workaround
+-
+         if (l_sys->getAttr<TARGETING::ATTR_IS_MPIPL_HB>())
+         {
+             l_errl = HBPM::resetPMAll();
+-- 
+1.8.2.2
+

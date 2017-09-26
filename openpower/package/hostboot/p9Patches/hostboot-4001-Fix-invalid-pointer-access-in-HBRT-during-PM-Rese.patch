@@ -1,0 +1,34 @@
+From d93decdb8e04748161adca6d5fa81c8ff6d39c4f Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Mon, 25 Sep 2017 21:48:35 -0500
+Subject: [PATCH v1 4001/4003] Fix invalid pointer access in HBRT during PM
+ Reset
+
+Change-Id: I2fbe6876ec01da128ebc7282dfc879eb67690f68
+---
+ src/usr/util/utillidpnor.C | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/usr/util/utillidpnor.C b/src/usr/util/utillidpnor.C
+index 48381e0..93ae8ce 100644
+--- a/src/usr/util/utillidpnor.C
++++ b/src/usr/util/utillidpnor.C
+@@ -158,7 +158,7 @@ bool UtilLidMgr::getLidPnorSectionInfo(uint32_t i_lidId,
+ #endif
+ #endif
+             // @TODO CQ:SW400352 remove this check
+-            if ((l_secId == PNOR::OCC) && PNOR::isSectionEmpty(l_secId))
++            if ((l_secId == PNOR::OCC) && !o_lidPnorInfo.vaddr)
+             {
+                 UTIL_FT("UtilLidMgr::getLidPnorSection PNOR section %s is empty get data from LID transfer",
+                         PNOR::SectionIdToString(l_secId));
+@@ -170,4 +170,4 @@ bool UtilLidMgr::getLidPnorSectionInfo(uint32_t i_lidId,
+     } while(0);
+ 
+     return l_lidInPnor;
+-}
+\ No newline at end of file
++}
+-- 
+1.8.2.2
+
