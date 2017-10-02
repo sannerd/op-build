@@ -1,0 +1,13 @@
+diff --git a/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C b/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C
+index 8b485b2..7fc1b84 100644
+--- a/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C
++++ b/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C
+@@ -3678,7 +3678,7 @@ void p9_pstate_update_vfrt(const GlobalPstateParmBlock* i_gppb,
+             // is correct without overfilling the HB trace buffer.
+             if (!((l_index_1 + 1) % 8))
+             {
+-                FAPI_INF("%s", l_line_str);
++                //FAPI_INF("%s", l_line_str);
+                 strcpy(l_buffer_str, "");
+                 strcpy(l_line_str, "    ");
+             }
