@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-HOSTBOOT_BINARIES_VERSION ?= bd074bda93d099ab503bdea85564a722695d0b2b
+HOSTBOOT_BINARIES_VERSION ?= b7d84178e3aa0ba7af33e107a9e364e1be72e613
 HOSTBOOT_BINARIES_SITE ?= $(call github,sannerd,hostboot-binaries,$(HOSTBOOT_BINARIES_VERSION))
 
 HOSTBOOT_BINARIES_LICENSE = Apache-2.0
