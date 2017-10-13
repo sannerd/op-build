@@ -1,0 +1,40 @@
+From c33cac321701d0e99b0713c96f33357247a9730c Mon Sep 17 00:00:00 2001
+From: Prasad Bg Ranganath <prasadbgr@in.ibm.com>
+Date: Tue, 10 Oct 2017 05:53:57 -0500
+Subject: [PATCH v1 1002/1006] Pstate_parameter_block: Fix VID compare
+ validation
+
+Change-Id: I664067880cb15fbb06ebbc424cf1ac3a52168c14
+CQ:SW404336
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/48170
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: Gregory S. Still <stillgs@us.ibm.com>
+Reviewed-by: Juan R. Medina <jrmedina@us.ibm.com>
+Reviewed-by: Jennifer A. Stofer <stofer@us.ibm.com>
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/48175
+Reviewed-by: Hostboot Team <hostboot@us.ibm.com>
+Tested-by: Jenkins OP Build CI <op-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins OP HW <op-hw-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Christian R. Geddes <crgeddes@us.ibm.com>
+---
+ src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C b/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C
+index a9a73ea..a9e7296 100644
+--- a/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C
++++ b/src/import/chips/p9/procedures/hwp/pm/p9_pstate_parameter_block.C
+@@ -130,7 +130,7 @@ uint8_t g_sysvfrtData[] = {0x56, 0x54, 0x00, 0x00, 0x02, 0x01, 0x01, 0x06, /// V
+                           };
+ 
+ #define VALIDATE_VID_VALUES(w,x,y,z,state) \
+-    if (!((w < x) && (x < y) && (y < z)))  \
++    if (!((w <= x) && (x <= y) && (y <= z)))  \
+        {state = 0;}
+ 
+ #define VALIDATE_THRESHOLD_VALUES(w,x,y,z,state) \
+-- 
+1.8.2.2
+

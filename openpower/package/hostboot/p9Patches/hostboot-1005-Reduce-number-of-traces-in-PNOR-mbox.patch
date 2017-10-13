@@ -1,0 +1,52 @@
+From 2affddc3688349fa43b0b18823c4fe673fa26264 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Wed, 11 Oct 2017 16:07:21 -0500
+Subject: [PATCH v1 1005/1006] Reduce number of traces in PNOR mbox
+
+ - When running with full traces on, the number of
+   PNOR traces will overflow the amount of memory
+   HB has available.
+
+Change-Id: I4a99794049e7d71138c404f5e3db3ef888c0089b
+CQ: SW404627
+Backport: release-op910
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/48265
+Reviewed-by: William G. Hoffa <wghoffa@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins OP Build CI <op-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins OP HW <op-hw-jenkins+hostboot@us.ibm.com>
+Reviewed-by: STEWART E. SMITH <stewart@linux.vnet.ibm.com>
+Reviewed-by: Daniel M. Crowell <dcrowell@us.ibm.com>
+---
+ src/usr/pnor/pnor_mboxdd.C | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/usr/pnor/pnor_mboxdd.C b/src/usr/pnor/pnor_mboxdd.C
+index 8224de8..be83434 100644
+--- a/src/usr/pnor/pnor_mboxdd.C
++++ b/src/usr/pnor/pnor_mboxdd.C
+@@ -329,7 +329,7 @@ errlHndl_t PnorDD::adjustMboxWindow(bool i_isWrite, uint32_t i_reqAddr,
+          * Then open the new one at the right position. The required
+          * alignment differs between protocol versions
+          */
+-        TRACFCOMP(g_trac_pnor,
++        TRACDCOMP(g_trac_pnor,
+                     "astMboxDD::adjustMboxWindow using protocol version: %d",
+                     iv_protocolVersion);
+         if (iv_protocolVersion == 1)
+@@ -381,9 +381,9 @@ errlHndl_t PnorDD::adjustMboxWindow(bool i_isWrite, uint32_t i_reqAddr,
+         iv_curWindowOpen = true;
+         iv_curWindowWrite = i_isWrite;
+ 
+-        TRACFCOMP(g_trac_pnor, " curWindowOffset    = %08x", iv_curWindowOffset);
+-        TRACFCOMP(g_trac_pnor, " curWindowSize      = %08x", iv_curWindowSize);
+-        TRACFCOMP(g_trac_pnor, " curWindowLpcOffset = %08x", iv_curWindowLpcOffset);
++        TRACDCOMP(g_trac_pnor, " curWindowOffset    = %08x", iv_curWindowOffset);
++        TRACDCOMP(g_trac_pnor, " curWindowSize      = %08x", iv_curWindowSize);
++        TRACDCOMP(g_trac_pnor, " curWindowLpcOffset = %08x", iv_curWindowLpcOffset);
+ 
+     }
+     while (true);
+-- 
+1.8.2.2
+

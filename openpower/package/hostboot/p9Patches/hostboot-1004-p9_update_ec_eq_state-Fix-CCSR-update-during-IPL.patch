@@ -1,0 +1,39 @@
+From 8323fcaf084f9f32d29120015dd865d911658759 Mon Sep 17 00:00:00 2001
+From: Prasad Bg Ranganath <prasadbgr@in.ibm.com>
+Date: Mon, 9 Oct 2017 05:48:33 -0500
+Subject: [PATCH v1 1004/1006] p9_update_ec_eq_state:Fix CCSR update during IPL
+
+Change-Id: I0891dbb478e6f047b28f1b80b32b831ecd780577
+CQ:SW403933
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/48114
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Gregory S. Still <stillgs@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: Brian T. Vanderpool <vanderp@us.ibm.com>
+Reviewed-by: Jennifer A. Stofer <stofer@us.ibm.com>
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/48117
+Reviewed-by: Hostboot Team <hostboot@us.ibm.com>
+Tested-by: Jenkins OP Build CI <op-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins OP HW <op-hw-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Christian R. Geddes <crgeddes@us.ibm.com>
+---
+ src/import/chips/p9/procedures/hwp/pm/p9_update_ec_eq_state.C | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/pm/p9_update_ec_eq_state.C b/src/import/chips/p9/procedures/hwp/pm/p9_update_ec_eq_state.C
+index 67b5c94..30a2cd9 100644
+--- a/src/import/chips/p9/procedures/hwp/pm/p9_update_ec_eq_state.C
++++ b/src/import/chips/p9/procedures/hwp/pm/p9_update_ec_eq_state.C
+@@ -280,7 +280,7 @@ static fapi2::ReturnCode update_ec_config(
+ 
+     // Write the recalculated OCC Core Configuration Status Register
+     FAPI_INF("  Writing OCC CCSR");
+-    FAPI_TRY(fapi2::putScom(i_target, PU_OCB_OCI_CCSR_SCOM2, l_core_config),
++    FAPI_TRY(fapi2::putScom(i_target, PU_OCB_OCI_CCSR_SCOM, l_core_config),
+              "Error writing to CCSR");
+ 
+ 
+-- 
+1.8.2.2
+
