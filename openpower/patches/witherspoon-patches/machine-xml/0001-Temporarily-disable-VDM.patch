@@ -1,0 +1,15 @@
+diff --git a/witherspoon.xml b/witherspoon.xml
+index 91f71e4..0c01616 100644
+--- a/witherspoon.xml
++++ b/witherspoon.xml
+@@ -17312,6 +17312,10 @@
+ 		<default>OFF</default>
+ 	</attribute>
+ 	<attribute>
++		<id>SYSTEM_VDM_DISABLE</id>
++		<default>0x1</default>
++	</attribute>
++	<attribute>
+ 		<id>SYS_FORCE_ALL_CORES</id>
+ 		<default></default>
+ 	</attribute>
