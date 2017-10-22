@@ -1,0 +1,44 @@
+diff --git a/src/import/chips/p9/procedures/xml/attribute_info/pm_plat_attributes.xml b/src/import/chips/p9/procedures/xml/attribute_info/pm_plat_attributes.xml
+index a77e93f..8cb4604 100644
+--- a/src/import/chips/p9/procedures/xml/attribute_info/pm_plat_attributes.xml
++++ b/src/import/chips/p9/procedures/xml/attribute_info/pm_plat_attributes.xml
+@@ -1265,9 +1265,8 @@
+       </description>
+       <valueType>uint8</valueType>
+       <enum>OFF = 0x00, ON = 0x01</enum>
+-      <initToZero/>
+       <platInit/>
+-      <default>OFF</default>
++      <default>ON</default>
+   </attribute>
+   <!-- ********************************************************************* -->
+   <attribute>
+diff --git a/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml b/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml
+index c4c572c..4ea3f16 100644
+--- a/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml
++++ b/src/import/hwpf/fapi2/xml/attribute_info/hb_temp_defaults.xml
+@@ -203,7 +203,7 @@
+           eg ATTR_VDM_ENABLED will not be set by the HWP -->
+     <attribute>
+         <id>ATTR_SYSTEM_VDM_DISABLE</id>
+-        <default>0x00</default>
++        <default>0x01</default>
+     </attribute>
+ 
+     <!-- HWP attribute -->
+diff --git a/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml b/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml
+index 0d5580c..0e63ff1 100644
+--- a/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml
++++ b/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml
+@@ -82,6 +82,11 @@
+      </attribute>
+ 
+     <attribute>
++          <id>ATTR_SYSTEM_VDM_DISABLE</id>
++          <default>1</default>
++     </attribute>
++
++    <attribute>
+           <id>ATTR_PROC_FABRIC_CHIP_ID</id>
+           <default>0</default>
+      </attribute>
