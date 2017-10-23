@@ -1,0 +1,16 @@
+diff --git a/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml b/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml
+index 0d5580c..0e63ff1 100644
+--- a/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml
++++ b/src/usr/targeting/common/xmltohb/hb_customized_attrs.xml
+@@ -82,6 +82,11 @@
+      </attribute>
+ 
+     <attribute>
++          <id>ATTR_SYSTEM_VDM_DISABLE</id>
++          <default>1</default>
++     </attribute>
++
++    <attribute>
+           <id>ATTR_PROC_FABRIC_CHIP_ID</id>
+           <default>0</default>
+      </attribute>

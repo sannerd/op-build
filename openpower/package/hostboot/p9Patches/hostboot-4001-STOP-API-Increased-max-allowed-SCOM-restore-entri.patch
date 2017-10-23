@@ -1,0 +1,37 @@
+From e066af5fac36268d0e073b0c1d4b965096c65b02 Mon Sep 17 00:00:00 2001
+From: Prem Shanker Jha <premjha2@in.ibm.com>
+Date: Tue, 10 Oct 2017 00:41:51 -0500
+Subject: [PATCH v1] STOP API: Increased max allowed SCOM restore entries for
+ EQ.
+
+Commit increases the max allowed SCOM restore entries from
+16 to 31. This is to facilitate IMA function.
+
+Change-Id: Iaa77f9cd47dc24fb5ecb31dc38405fe9d48bd7a5
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/48157
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: JAMES DEZELLE <jdezelle@us.ibm.com>
+Reviewed-by: Juan R. Medina <jrmedina@us.ibm.com>
+Reviewed-by: RANGANATHPRASAD G. BRAHMASAMUDRA <prasadbgr@in.ibm.com>
+Reviewed-by: Gregory S. Still <stillgs@us.ibm.com>
+---
+ src/import/chips/p9/procedures/hwp/lib/p9_hcd_memmap_base.H | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/lib/p9_hcd_memmap_base.H b/src/import/chips/p9/procedures/hwp/lib/p9_hcd_memmap_base.H
+index 6d24ec5..ce8376e 100644
+--- a/src/import/chips/p9/procedures/hwp/lib/p9_hcd_memmap_base.H
++++ b/src/import/chips/p9/procedures/hwp/lib/p9_hcd_memmap_base.H
+@@ -266,7 +266,7 @@ HCD_CONST(QUAD_SCOM_RESTORE_HOMER_OFFSET,
+ 
+ HCD_CONST(MAX_L2_SCOM_ENTRIES,                  16)
+ HCD_CONST(MAX_L3_SCOM_ENTRIES,                  16)
+-HCD_CONST(MAX_EQ_SCOM_ENTRIES,                  15)
++HCD_CONST(MAX_EQ_SCOM_ENTRIES,                  31)
+ HCD_CONST(QUAD_SCOM_RESTORE_REGS_PER_QUAD,
+           (MAX_EQ_SCOM_ENTRIES + MAX_L2_SCOM_ENTRIES + MAX_L3_SCOM_ENTRIES + 1))
+ 
+-- 
+1.8.2.2
+
