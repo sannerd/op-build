@@ -1,0 +1,67 @@
+From 4cccc280ccda92171a97f80c8898a7ceca057cb6 Mon Sep 17 00:00:00 2001
+From: Jacob Harvey <jlharvey@us.ibm.com>
+Date: Wed, 4 Oct 2017 14:20:07 -0500
+Subject: [PATCH v1] Create xlate equality function for dimm kind
+
+Change-Id: Ia2c85d7afa9872a49dd470ec5061b2f99f992db9
+CQ: SW404201
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/47169
+Dev-Ready: JACOB L. HARVEY <jlharvey@us.ibm.com>
+Reviewed-by: STEPHEN GLANCY <sglancy@us.ibm.com>
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: HWSV CI <hwsv-ci+hostboot@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: ANDRE A. MARIN <aamarin@us.ibm.com>
+Reviewed-by: Louis Stermole <stermole@us.ibm.com>
+Reviewed-by: Jennifer A. Stofer <stofer@us.ibm.com>
+---
+ .../chips/p9/procedures/hwp/memory/lib/dimm/kind.H     | 18 ++++++++++++++++++
+ .../chips/p9/procedures/hwp/memory/lib/mc/xlate.C      |  2 +-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/dimm/kind.H b/src/import/chips/p9/procedures/hwp/memory/lib/dimm/kind.H
+index 048ec59..fd26040 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/dimm/kind.H
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/dimm/kind.H
+@@ -228,6 +228,24 @@ class kind
+         uint8_t iv_stack_type;
+         uint8_t iv_hybrid;
+         uint8_t iv_hybrid_memory_type;
++
++        ///
++        /// @brief equal_config
++        /// @param[in] i_input_compare the i_kind to compare against
++        /// @return bool true iff the two kind are of the same kind for xlate purposes
++        /// @warning this does not compare the targets (iv_target,), mfgid, prim_stack_type nor hybrid type
++        ///
++        inline bool equal_config(const kind& i_input_compare) const
++        {
++            return ((iv_master_ranks == i_input_compare.iv_master_ranks) &&
++                    (iv_total_ranks == i_input_compare.iv_total_ranks) &&
++                    (iv_dram_density == i_input_compare.iv_dram_density) &&
++                    (iv_dram_width == i_input_compare.iv_dram_width) &&
++                    (iv_dram_generation == i_input_compare.iv_dram_generation) &&
++                    (iv_dimm_type == i_input_compare.iv_dimm_type) &&
++                    (iv_rows == i_input_compare.iv_rows) &&
++                    (iv_size == i_input_compare.iv_size));
++        }
+ };
+ 
+ }
+diff --git a/src/import/chips/p9/procedures/hwp/memory/lib/mc/xlate.C b/src/import/chips/p9/procedures/hwp/memory/lib/mc/xlate.C
+index 5d8486f..ed291f2 100644
+--- a/src/import/chips/p9/procedures/hwp/memory/lib/mc/xlate.C
++++ b/src/import/chips/p9/procedures/hwp/memory/lib/mc/xlate.C
+@@ -1926,7 +1926,7 @@ fapi2::ReturnCode setup_xlate_map_helper( std::vector<dimm::kind>& io_dimm_kinds
+         // Find the proper set function based on this DIMM kind.
+         const auto l_setup = std::find_if( xlate_map.begin(), xlate_map.end(), [k](const xlate_setup & x) -> bool
+         {
+-            return x.iv_kind == k;
++            return x.iv_kind.equal_config(k);
+         } );
+ 
+         // If we didn't find it, raise a stink.
+-- 
+1.8.2.2
+
