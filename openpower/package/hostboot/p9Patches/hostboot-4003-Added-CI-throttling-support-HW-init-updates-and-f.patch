@@ -1,0 +1,160 @@
+From 9eee0c67a58d91b481f14ef3bd1965d775665868 Mon Sep 17 00:00:00 2001
+From: Ricardo Mata <ricmata@us.ibm.com>
+Date: Tue, 7 Nov 2017 14:18:42 -0600
+Subject: [PATCH v1] Added CI throttling support, HW init updates, and fixed a
+ bug with tce arb.
+
+Change-Id: Id71511d75e526e567fd8ba6b56551adfe2806fa4
+CQ: SW407851
+Reviewed-on: http://ralgit01.raleigh.ibm.com/gerrit1/49390
+Tested-by: FSP CI Jenkins <fsp-CI-jenkins+hostboot@us.ibm.com>
+Reviewed-by: Joseph J. McGill <jmcgill@us.ibm.com>
+Tested-by: Jenkins Server <pfd-jenkins+hostboot@us.ibm.com>
+Tested-by: HWSV CI <hwsv-ci+hostboot@us.ibm.com>
+Tested-by: PPE CI <ppe-ci+hostboot@us.ibm.com>
+Tested-by: Hostboot CI <hostboot-ci+hostboot@us.ibm.com>
+Reviewed-by: Thi N. Tran <thi@us.ibm.com>
+Reviewed-by: Jennifer A. Stofer <stofer@us.ibm.com>
+---
+ .../chips/p9/procedures/hwp/nest/p9_pcie_config.C  | 25 +++++++++++++++++++---
+ .../chips/p9/procedures/hwp/nest/p9_pcie_config.H  |  8 +++++++
+ .../xml/attribute_info/chip_ec_attributes.xml      | 25 ++++++++++++++++++++++
+ 3 files changed, 55 insertions(+), 3 deletions(-)
+
+diff --git a/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.C b/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.C
+index 034ebcf..95d9ace 100644
+--- a/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.C
++++ b/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.C
+@@ -59,6 +59,7 @@ const uint8_t PEC_PBCQ_HWCFG_HANG_POLL_SCALE = 0x1;
+ const uint8_t PEC_PBCQ_HWCFG_DATA_POLL_SCALE = 0x1;
+ const uint8_t PEC_PBCQ_HWCFG_HANG_PE_SCALE = 0x1;
+ const uint8_t PEC_PBCQ_HWCFG_P9_CACHE_INJ_MODE = 0x3;
++const uint8_t PEC_PBCQ_HWCFG_P9_CACHE_INJ_RATE = 0x3;
+ 
+ // PCI AIB Hardware Configuration Register field definitions
+ const uint8_t PEC_AIB_HWCFG_OSBM_HOL_BLK_CNT = 0x7;
+@@ -84,6 +85,7 @@ fapi2::ReturnCode p9_pcie_config(
+     fapi2::ATTR_PROC_PCIE_REGISTER_BAR_BASE_ADDR_OFFSET_Type l_register_bar_offsets;
+     fapi2::ATTR_PROC_PCIE_BAR_SIZE_Type l_bar_sizes;
+     fapi2::ATTR_CHIP_EC_FEATURE_HW363246_Type l_hw363246;
++    fapi2::ATTR_CHIP_EC_FEATURE_HW410503_Type l_hw410503;
+     fapi2::Target<fapi2::TARGET_TYPE_SYSTEM> FAPI_SYSTEM;
+ 
+     fapi2::buffer<uint64_t> l_buf = 0;
+@@ -115,6 +117,7 @@ fapi2::ReturnCode p9_pcie_config(
+                            l_bar_sizes),
+              "Error from FAPI_ATTR_GET (ATTR_PROC_PCIE_BAR_SIZE)");
+ 
++
+     // determine base address of chip MMIO range
+     FAPI_TRY(p9_fbc_utils_get_chip_base_address(i_target,
+              EFF_FBC_GRP_CHIP_IDS,
+@@ -124,6 +127,12 @@ fapi2::ReturnCode p9_pcie_config(
+              l_base_addr_mmio),
+              "Error from p9_fbc_utils_get_chip_base_address");
+ 
++    // determine chip ec level for defect HW410503 and HW363246
++    FAPI_TRY(FAPI_ATTR_GET(fapi2::ATTR_CHIP_EC_FEATURE_HW410503,
++                           i_target,
++                           l_hw410503),
++             "Error from FAPI_ATTR_GET (ATTR_CHIP_EC_FEATURE_HW410503)");
++
+     FAPI_TRY(FAPI_ATTR_GET(fapi2::ATTR_CHIP_EC_FEATURE_HW363246,
+                            i_target,
+                            l_hw363246),
+@@ -147,11 +156,13 @@ fapi2::ReturnCode p9_pcie_config(
+         // Phase2 init step 1
+         // NestBase+0x00
+         // Set bits 00:03 = 0b0001 Set hang poll scale
+-        // Set bits 04:07 = 0b0010 Set data scale
++        // Set bits 04:07 = 0b0001 Set data scale
+         // Set bits 08:11 = 0b0001 Set hang pe scale
++        // Set bit 22 = 0b1 Disable out­of­order store behavior
+         // Set bit 33 = 0b1 Enable Channel Tag streaming behavior
+         // Set bits 34:35 = 0b11 Set P9 Style cache-inject behavior
+-        // Set bit 60 = 0b1 only if PEC is not used at a x16 unit.
++        // Set bits 46:48 = 0b011 Set P9 Style cache-inject rate, 1/16 cycles
++        // Set bit 60 = 0b1 only if PEC is bifurcated or trifurcated.
+         FAPI_TRY(fapi2::getScom(l_pec_chiplet, PEC_PBCQHWCFG_REG, l_buf),
+                  "Error from getScom (PEC_PBCQHWCFG_REG)");
+         l_buf.insertFromRight<PEC_PBCQHWCFG_REG_HANG_POLL_SCALE,
+@@ -160,12 +171,20 @@ fapi2::ReturnCode p9_pcie_config(
+                               PEC_PBCQHWCFG_REG_HANG_DATA_SCALE_LEN>(PEC_PBCQ_HWCFG_DATA_POLL_SCALE);
+         l_buf.insertFromRight<PEC_PBCQHWCFG_REG_HANG_PE_SCALE,
+                               PEC_PBCQHWCFG_REG_HANG_PE_SCALE_LEN>(PEC_PBCQ_HWCFG_HANG_PE_SCALE);
++        l_buf.setBit<PEC_PBCQHWCFG_REG_PE_DISABLE_OOO_MODE>();
+         l_buf.setBit<PEC_PBCQHWCFG_REG_PE_CHANNEL_STREAMING_EN>();
+         l_buf.insertFromRight<PEC_PBCQHWCFG_REG_PE_WR_CACHE_INJECT_MODE,
+                               PEC_PBCQHWCFG_REG_PE_WR_CACHE_INJECT_MODE_LEN>(
+                                   PEC_PBCQ_HWCFG_P9_CACHE_INJ_MODE);
+ 
+-        if (l_attr_proc_pcie_iovalid_enable > 0x1)
++        if (l_hw410503)
++        {
++            l_buf.insertFromRight<PEC_PBCQHWCFG_REG_PE_WR_CACHE_INJECT_RATE,
++                                  PEC_PBCQHWCFG_REG_PE_WR_CACHE_INJECT_RATE_LEN>(
++                                      PEC_PBCQ_HWCFG_P9_CACHE_INJ_RATE);
++        }
++
++        if (( l_pec_id == 1) || ((l_pec_id == 2) && (l_attr_proc_pcie_iovalid_enable != 0x4)))
+         {
+             l_buf.setBit<PEC_PBCQHWCFG_REG_PE_DISABLE_TCE_ARBITRATION>();
+         }
+diff --git a/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.H b/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.H
+index 78483cc..c61fe87 100644
+--- a/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.H
++++ b/src/import/chips/p9/procedures/hwp/nest/p9_pcie_config.H
+@@ -49,6 +49,14 @@
+ typedef fapi2::ReturnCode (*p9_pcie_config_FP_t) (
+     const fapi2::Target<fapi2::TARGET_TYPE_PROC_CHIP>&);
+ 
++//-----------------------------------------------------------------------------------
++// Constant definitions
++//-----------------------------------------------------------------------------------
++
++// PBCQ Hardware Configuration Register Cache Inject Rate enablement
++const uint8_t PEC_PBCQHWCFG_REG_PE_WR_CACHE_INJECT_RATE = 46;
++const uint8_t PEC_PBCQHWCFG_REG_PE_WR_CACHE_INJECT_RATE_LEN = 3;
++
+ //------------------------------------------------------------------------------
+ // Function prototype
+ //------------------------------------------------------------------------------
+diff --git a/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml b/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
+index 49a9404..7d6f7ac 100644
+--- a/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
++++ b/src/import/chips/p9/procedures/xml/attribute_info/chip_ec_attributes.xml
+@@ -4478,6 +4478,31 @@
+     </chipEcFeature>
+   </attribute>
+ 
++  <attribute>
++    <id>ATTR_CHIP_EC_FEATURE_HW410503</id>
++    <targetType>TARGET_TYPE_PROC_CHIP</targetType>
++    <description>
++      Cache Inject Throttle settings for Nimbus DD2.1 and Cumulus 1.0
++      to help with remote cache inject performance.
++    </description>
++    <chipEcFeature>
++      <chip>
++        <name>ENUM_ATTR_NAME_NIMBUS</name>
++        <ec>
++          <value>0x21</value>
++          <test>GREATER_THAN_OR_EQUAL</test>
++        </ec>
++      </chip>
++      <chip>
++        <name>ENUM_ATTR_NAME_CUMULUS</name>
++        <ec>
++          <value>0x10</value>
++          <test>GREATER_THAN_OR_EQUAL</test>
++        </ec>
++      </chip>
++    </chipEcFeature>
++  </attribute>
++
+   <!-- ******************************************************************** -->
+   <!-- Memory Section                                                       -->
+   <!-- ******************************************************************** -->
+-- 
+1.8.2.2
+
