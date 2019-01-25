@@ -1,0 +1,71 @@
+From fae1ac63f91a48e716bdf1d844e8883b9ca8ab80 Mon Sep 17 00:00:00 2001
+From: Dean Sanner <dsanner@us.ibm.com>
+Date: Fri, 25 Jan 2019 10:24:36 -0600
+Subject: [PATCH v1] Support direct load of POWERVM from BOOTKERNEL partition
+
+ PowerVM doesn't fit in the PAYLOAD section of PNOR.  To
+ enable a common PNOR layout instead put PowerVM into
+ BOOTKERNEL partition, and if PHYP payload, load BOOTKERNEL
+ instead of PAYLOAD PNOR partition
+
+Change-Id: Id19f3ce708b537a19256c22aab3cc1b3e83d4ab1
+---
+ src/include/usr/pnor/pnor_const.H               | 1 +
+ src/usr/isteps/istep20/call_host_load_payload.C | 8 +++++++-
+ src/usr/pnor/pnor_utils.C                       | 2 ++
+ 3 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/src/include/usr/pnor/pnor_const.H b/src/include/usr/pnor/pnor_const.H
+index 44050eb..6706681 100644
+--- a/src/include/usr/pnor/pnor_const.H
++++ b/src/include/usr/pnor/pnor_const.H
+@@ -76,6 +76,7 @@ enum SectionId
+     HDAT,           /**< HDAT data */
+     EECACHE,
+     OCMBFW,         /**< OCMB image */
++    BOOTKERNEL,     /**< Bootkernel -- HB uses for PHYP */
+ #endif
+     NUM_SECTIONS,   /**< Number of defined sections */
+ 
+diff --git a/src/usr/isteps/istep20/call_host_load_payload.C b/src/usr/isteps/istep20/call_host_load_payload.C
+index 44e7672..8c21f42 100644
+--- a/src/usr/isteps/istep20/call_host_load_payload.C
++++ b/src/usr/isteps/istep20/call_host_load_payload.C
+@@ -121,7 +121,13 @@ void* call_host_load_payload (void *io_pArgs)
+         // Load payload data in PHYP mode or in Sapphire mode
+         if(is_sapphire_load() || is_phyp_load())
+         {
+-            l_err = load_pnor_section( PNOR::PAYLOAD, payloadBase );
++            PNOR::SectionId l_secID = PNOR::PAYLOAD;
++            if (is_phyp_load())
++            {
++                l_secID = PNOR::BOOTKERNEL;
++            }
++
++            l_err = load_pnor_section( l_secID, payloadBase );
+             if ( l_err )
+             {
+                 TRACFCOMP(ISTEPS_TRACE::g_trac_isteps_trace,
+diff --git a/src/usr/pnor/pnor_utils.C b/src/usr/pnor/pnor_utils.C
+index 8adb715..8dead96 100644
+--- a/src/usr/pnor/pnor_utils.C
++++ b/src/usr/pnor/pnor_utils.C
+@@ -345,6 +345,7 @@ bool PNOR::isEnforcedSecureSection(const uint32_t i_section)
+                i_section == HB_DATA ||
+                i_section == SBE_IPL ||
+                i_section == PAYLOAD ||
++               i_section == BOOTKERNEL ||
+                i_section == SBKT ||
+                i_section == OCC ||
+                i_section == HCODE ||
+@@ -427,6 +428,7 @@ const char * PNOR::SectionIdToString( uint32_t i_secIdIndex )
+         "HDAT",        /**< PNOR::HDAT           : Hdat Data */
+         "EECACHE",     /**< PNOR::EECACHE        : Cached data from various EEPROMs */
+         "OCMBFW",      /**< PNOR::OCMBFW         : OCMB image */
++        "BOOTKERNEL",  /**< PNOR::BOOTKERNEL     : OPAL == petitboot,PHYP == PowerVM */
+ #endif
+     };
+ 
+-- 
+1.8.2.2
+
